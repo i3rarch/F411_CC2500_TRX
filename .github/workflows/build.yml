@@ -32,16 +32,16 @@ jobs:
     - name: Check build artifacts
       run: |
         ls -la build/
-        file build/blinky_f411.elf
-        arm-none-eabi-size build/blinky_f411.elf
+        file build/F411_CC2500_TRX.elf
+        arm-none-eabi-size build/F411_CC2500_TRX.elf
         
     - name: Upload build artifacts
       uses: actions/upload-artifact@v4
       with:
         name: firmware-build
         path: |
-          blinky_f411/build/blinky_f411.elf
-          blinky_f411/build/blinky_f411.hex
-          blinky_f411/build/blinky_f411.bin
-          blinky_f411/build/blinky_f411.map
+          F411_CC2500_TRX/build/F411_CC2500_TRX.elf
+          F411_CC2500_TRX/build/F411_CC2500_TRX.hex
+          F411_CC2500_TRX/build/F411_CC2500_TRX.bin
+          F411_CC2500_TRX/build/F411_CC2500_TRX.map
         retention-days: 30
