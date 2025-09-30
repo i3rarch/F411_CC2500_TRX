@@ -26,13 +26,11 @@ jobs:
         
     - name: Build project
       run: |
-        cd blinky_f411
         make clean
         make all
         
     - name: Check build artifacts
       run: |
-        cd blinky_f411
         ls -la build/
         file build/blinky_f411.elf
         arm-none-eabi-size build/blinky_f411.elf
