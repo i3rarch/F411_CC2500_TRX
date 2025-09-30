@@ -1,0 +1,49 @@
+name: Build STM32 Project
+
+on:
+  push:
+    branches: [ main, master, develop ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Install ARM toolchain
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y gcc-arm-none-eabi make
+        
+    - name: Verify toolchain
+      run: |
+        arm-none-eabi-gcc --version
+        make --version
+        
+    - name: Build project
+      run: |
+        cd blinky_f411
+        make clean
+        make all
+        
+    - name: Check build artifacts
+      run: |
+        cd blinky_f411
+        ls -la build/
+        file build/blinky_f411.elf
+        arm-none-eabi-size build/blinky_f411.elf
+        
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: firmware-build
+        path: |
+          blinky_f411/build/blinky_f411.elf
+          blinky_f411/build/blinky_f411.hex
+          blinky_f411/build/blinky_f411.bin
+          blinky_f411/build/blinky_f411.map
+        retention-days: 30
