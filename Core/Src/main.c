@@ -21,7 +21,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "cc2500.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -45,7 +45,7 @@ DMA_HandleTypeDef hdma_spi1_rx;
 DMA_HandleTypeDef hdma_spi1_tx;
 
 /* USER CODE BEGIN PV */
-
+CC2500CTX cc2500_ctx;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -94,7 +94,25 @@ int main(void)
   MX_DMA_Init();
   MX_SPI1_Init();
   /* USER CODE BEGIN 2 */
+  // Инициализация CC2500 с полным набором GPIO
+  cc2500_init_full(&cc2500_ctx,
+                  CSN_GPIO_Port, CSN_Pin,          // CS pin
+                  GD00_GPIO_Port, GD00_Pin,        // GD0 pin
+                  GD02_GPIO_Port, GD02_Pin,        // GD2 pin
+                  PA_EN_GPIO_Port, PA_EN_Pin,      // PA Enable pin
+                  RX_EN_GPIO_Port, RX_EN_Pin,      // RX Enable pin
+                  &hspi1);                         // SPI handle
 
+  // Проверка инициализации
+  uint8_t partnum, version;
+  if (cc2500_readRegister(&cc2500_ctx, CC2500_30_PARTNUM, &partnum) == 0x80 ||
+      cc2500_readRegister(&cc2500_ctx, CC2500_31_VERSION, &version) == 0x80) {
+      // Ошибка инициализации
+      Error_Handler();
+  }
+
+  // Установка в режим ожидания
+  cc2500_setIdleMode(&cc2500_ctx);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -105,6 +123,11 @@ int main(void)
 
     /* USER CODE BEGIN 3 */
     HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13); 
+
+    // Пример использования CC2500
+    uint8_t test_data[] = "Hello CC2500!";
+    cc2500_transmit(&cc2500_ctx, test_data, sizeof(test_data) - 1);
+
     HAL_Delay(500);
   }
   /* USER CODE END 3 */
@@ -132,7 +155,7 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
   RCC_OscInitStruct.PLL.PLLM = 25;
-  RCC_OscInitStruct.PLL.PLLN = 192;
+  RCC_OscInitStruct.PLL.PLLN = 128;
   RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
   RCC_OscInitStruct.PLL.PLLQ = 4;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
@@ -178,7 +201,7 @@ static void MX_SPI1_Init(void)
   hspi1.Init.CLKPolarity = SPI_POLARITY_LOW;
   hspi1.Init.CLKPhase = SPI_PHASE_1EDGE;
   hspi1.Init.NSS = SPI_NSS_SOFT;
-  hspi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_64;
+  hspi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_128;
   hspi1.Init.FirstBit = SPI_FIRSTBIT_MSB;
   hspi1.Init.TIMode = SPI_TIMODE_DISABLE;
   hspi1.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
