@@ -108,44 +108,99 @@ int main(void)
   cc2500_reset(&cc2500_ctx);
   HAL_Delay(100);
   
-  // Настройка чипа
+  // Базовая конфигурация
   cc2500_configure(&cc2500_ctx);
   HAL_Delay(10);
   
-  // Установка частоты 2400.25 MHz для удобного поиска в SDR
-  // Формула: freq = (F_osc / 2^16) * FREQ[23:0]
-  // где F_osc = 26 MHz (кварц CC2500)
-  // FREQ = (2400.25 * 2^16) / 26 = 6053145.6 = 0x5C5C5A (примерно)
+  // ========== ЧАСТОТА 2405.00 MHz ==========
+  cc2500_writeRegister(&cc2500_ctx, CC2500_0D_FREQ2, 0x5C); 
+  cc2500_writeRegister(&cc2500_ctx, CC2500_0E_FREQ1, 0x7F); 
+  cc2500_writeRegister(&cc2500_ctx, CC2500_0F_FREQ0, 0xFA);
+
+  // ========== СКОРОСТЬ ПЕРЕДАЧИ 9.6 kBaud (рекомендуется) ==========
+  // MDMCFG4: CHANBW_E = 3, CHANBW_M = 1 -> BW = 102 kHz
+  // DRATE_E = 7
+  cc2500_writeRegister(&cc2500_ctx, CC2500_10_MDMCFG4, 0xE7);
   
-  cc2500_writeRegister(&cc2500_ctx, CC2500_0D_FREQ2, 0x5C); // Старший байт
-  cc2500_writeRegister(&cc2500_ctx, CC2500_0E_FREQ1, 0x5C); // Средний байт  
-  cc2500_writeRegister(&cc2500_ctx, CC2500_0F_FREQ0, 0x5A); // Младший байт
+  // MDMCFG3: DRATE_M = 131 -> ~9.6 kBaud
+  cc2500_writeRegister(&cc2500_ctx, CC2500_11_MDMCFG3, 0x83);
   
-  // Установка максимальной мощности передачи
-  uint8_t patable = 0x55; // Максимальная мощность (~0 dBm)
-  cc2500_writeRegister(&cc2500_ctx, CC2500_3E_PATABLE, patable);
+  // ========== ДЕВИАЦИЯ ±19 kHz (под новую скорость) ==========
+  cc2500_writeRegister(&cc2500_ctx, CC2500_15_DEVIATN, 0x24);
+  
+  // ========== 2-FSK МОДУЛЯЦИЯ ==========
+  // MDMCFG2: 2-FSK, 16/16 sync word bits
+  // Биты [6:4] = 000 (2-FSK)
+  // Биты [2:0] = 011 (16/16 sync word)
+  cc2500_writeRegister(&cc2500_ctx, CC2500_12_MDMCFG2, 0x03);
+  
+  // Альтернатива: GFSK (более плавная модуляция)
+  // cc2500_writeRegister(&cc2500_ctx, CC2500_12_MDMCFG2, 0x13);
+  
+  // ========== СИНХРОСЛОВО ==========
+  // Уникальное синхрослово для идентификации пакетов
+  cc2500_writeRegister(&cc2500_ctx, CC2500_04_SYNC1, 0xD3);
+  cc2500_writeRegister(&cc2500_ctx, CC2500_05_SYNC0, 0x91);
+  
+  // ========== МОЩНОСТЬ ==========
+  cc2500_writeRegister(&cc2500_ctx, CC2500_3E_PATABLE, 0xC0);
+  
+  // ========== НАСТРОЙКА ПАКЕТОВ ==========
+  cc2500_writeRegister(&cc2500_ctx, CC2500_06_PKTLEN, 32); // Длина пакета
+  
+  // PKTCTRL1: CRC autoflush, append status
+  cc2500_writeRegister(&cc2500_ctx, CC2500_07_PKTCTRL1, 0x04);
+  
+  // PKTCTRL0: Фиксированная длина, CRC включен, whitening выключен
+  cc2500_writeRegister(&cc2500_ctx, CC2500_08_PKTCTRL0, 0x04);
   
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
+  uint8_t counter = 0;
+  
   while (1)
   {
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
     
-    // Индикация работы
     HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
     
-    // Передача тестовых данных
-    // Частота: 2400.25 MHz (легко найти в SDR)
-    uint8_t test_data[] = {0xAA, 0x55, 0xAA, 0x55, 0xAA, 0x55, 0xAA, 0x55}; // Паттерн для SDR
+    // ========== ПРОСТОЙ FSK ПАКЕТ ==========
+    uint8_t test_data[32] = {
+        // Преамбула для синхронизации приемника
+        0xAA, 0xAA,  // 10101010 - clock recovery
+        
+        // Sync word добавляется автоматически (0xD391)
+        
+        // Заголовок пакета
+        0x48, 0x45, 0x4C, 0x4C, 0x4F,  // "HELLO"
+        
+        // Данные с паттерном
+        0x00, 0xFF, 0x00, 0xFF,  // Чередование
+        0x55, 0xAA, 0x55, 0xAA,  // Инверсия
+        
+        // Счетчик (инкрементируется каждый раз)
+        counter++,
+        counter,
+        counter + 1,
+        counter + 2,
+        
+        // Тестовые данные
+        0x12, 0x34, 0x56, 0x78,
+        0x9A, 0xBC, 0xDE, 0xF0,
+        
+        // Завершающий паттерн
+        0xAA, 0x55, 0xAA, 0x55
+    };
+    
     cc2500_transmit(&cc2500_ctx, test_data, sizeof(test_data));
-    
-    // Задержка между передачами
-    HAL_Delay(100); // 100 мс = 10 передач в секунду
-    
+
+    // Пауза между пакетами (2 раза в секунду)
+    HAL_Delay(500);
+
   }
   /* USER CODE END 3 */
 }
