@@ -94,25 +94,37 @@ int main(void)
   MX_DMA_Init();
   MX_SPI1_Init();
   /* USER CODE BEGIN 2 */
-  // Инициализация CC2500 с полным набором GPIO
+  
+  // Инициализация CC2500
   cc2500_init_full(&cc2500_ctx,
-                  CSN_GPIO_Port, CSN_Pin,          // CS pin
-                  GD00_GPIO_Port, GD00_Pin,        // GD0 pin
-                  GD02_GPIO_Port, GD02_Pin,        // GD2 pin
-                  PA_EN_GPIO_Port, PA_EN_Pin,      // PA Enable pin
-                  RX_EN_GPIO_Port, RX_EN_Pin,      // RX Enable pin
-                  &hspi1);                         // SPI handle
+                  CSN_GPIO_Port, CSN_Pin,
+                  GD00_GPIO_Port, GD00_Pin,
+                  GD02_GPIO_Port, GD02_Pin,
+                  PA_EN_GPIO_Port, PA_EN_Pin,
+                  RX_EN_GPIO_Port, RX_EN_Pin,
+                  &hspi1);
 
-  // Проверка инициализации
-  uint8_t partnum, version;
-  if (cc2500_readRegister(&cc2500_ctx, CC2500_30_PARTNUM, &partnum) == 0x80 ||
-      cc2500_readRegister(&cc2500_ctx, CC2500_31_VERSION, &version) == 0x80) {
-      // Ошибка инициализации
-      Error_Handler();
-  }
-
-  // Установка в режим ожидания
-  cc2500_setIdleMode(&cc2500_ctx);
+  // Сброс и конфигурация CC2500
+  cc2500_reset(&cc2500_ctx);
+  HAL_Delay(100);
+  
+  // Настройка чипа
+  cc2500_configure(&cc2500_ctx);
+  HAL_Delay(10);
+  
+  // Установка частоты 2400.25 MHz для удобного поиска в SDR
+  // Формула: freq = (F_osc / 2^16) * FREQ[23:0]
+  // где F_osc = 26 MHz (кварц CC2500)
+  // FREQ = (2400.25 * 2^16) / 26 = 6053145.6 = 0x5C5C5A (примерно)
+  
+  cc2500_writeRegister(&cc2500_ctx, CC2500_0D_FREQ2, 0x5C); // Старший байт
+  cc2500_writeRegister(&cc2500_ctx, CC2500_0E_FREQ1, 0x5C); // Средний байт  
+  cc2500_writeRegister(&cc2500_ctx, CC2500_0F_FREQ0, 0x5A); // Младший байт
+  
+  // Установка максимальной мощности передачи
+  uint8_t patable = 0x55; // Максимальная мощность (~0 dBm)
+  cc2500_writeRegister(&cc2500_ctx, CC2500_3E_PATABLE, patable);
+  
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -122,13 +134,18 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-    HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13); 
-
-    // Пример использования CC2500
-    uint8_t test_data[] = "Hello CC2500!";
-    cc2500_transmit(&cc2500_ctx, test_data, sizeof(test_data) - 1);
-
-    HAL_Delay(500);
+    
+    // Индикация работы
+    HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
+    
+    // Передача тестовых данных
+    // Частота: 2400.25 MHz (легко найти в SDR)
+    uint8_t test_data[] = {0xAA, 0x55, 0xAA, 0x55, 0xAA, 0x55, 0xAA, 0x55}; // Паттерн для SDR
+    cc2500_transmit(&cc2500_ctx, test_data, sizeof(test_data));
+    
+    // Задержка между передачами
+    HAL_Delay(100); // 100 мс = 10 передач в секунду
+    
   }
   /* USER CODE END 3 */
 }
@@ -201,11 +218,11 @@ static void MX_SPI1_Init(void)
   hspi1.Init.CLKPolarity = SPI_POLARITY_LOW;
   hspi1.Init.CLKPhase = SPI_PHASE_1EDGE;
   hspi1.Init.NSS = SPI_NSS_SOFT;
-  hspi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_128;
+  hspi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_64;
   hspi1.Init.FirstBit = SPI_FIRSTBIT_MSB;
   hspi1.Init.TIMode = SPI_TIMODE_DISABLE;
   hspi1.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
-  hspi1.Init.CRCPolynomial = 10;
+  hspi1.Init.CRCPolynomial = 7;
   if (HAL_SPI_Init(&hspi1) != HAL_OK)
   {
     Error_Handler();
@@ -312,6 +329,7 @@ void Error_Handler(void)
   }
   /* USER CODE END Error_Handler_Debug */
 }
+
 #ifdef USE_FULL_ASSERT
 /**
   * @brief  Reports the name of the source file and the source line number
