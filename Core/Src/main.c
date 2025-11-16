@@ -23,6 +23,11 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "cc2500.h"
+#include "usbd_cdc_if.h"
+#include "cli_handler.h"
+#include <string.h>
+#include <stdio.h>
+#include <stdlib.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -60,7 +65,11 @@ static void MX_SPI1_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-
+// обработчик из cli_handler
+void CDC_On_Receive_FS(uint8_t* Buf, uint32_t Len)
+{
+    cli_process_input(Buf, Len);
+}
 /* USER CODE END 0 */
 
 /**
@@ -97,6 +106,9 @@ int main(void)
   MX_USB_DEVICE_Init();
   /* USER CODE BEGIN 2 */
   
+  // Инициализация обработчика команд
+  cli_init(&cc2500_ctx);
+
   // Инициализация CC2500
   cc2500_init_full(&cc2500_ctx,
                   CSN_GPIO_Port, CSN_Pin,
@@ -119,16 +131,14 @@ int main(void)
   cc2500_writeRegister(&cc2500_ctx, CC2500_0E_FREQ1, 0x7F); 
   cc2500_writeRegister(&cc2500_ctx, CC2500_0F_FREQ0, 0xFA);
 
-  // ========== СКОРОСТЬ ПЕРЕДАЧИ 9.6 kBaud (рекомендуется) ==========
-  // MDMCFG4: CHANBW_E = 3, CHANBW_M = 1 -> BW = 102 kHz
-  // DRATE_E = 7
-  cc2500_writeRegister(&cc2500_ctx, CC2500_10_MDMCFG4, 0xE7);
-  
-  // MDMCFG3: DRATE_M = 131 -> ~9.6 kBaud
-  cc2500_writeRegister(&cc2500_ctx, CC2500_11_MDMCFG3, 0x83);
-  
-  // ========== ДЕВИАЦИЯ ±19 kHz (под новую скорость) ==========
-  cc2500_writeRegister(&cc2500_ctx, CC2500_15_DEVIATN, 0x24);
+  // ========== СКОРОСТЬ ПЕРЕДАЧИ (по умолчанию 9600) ==========
+  // Установка скорости может быть выполнена через CLI
+  uint8_t mdmcfg4 = 0xE7; // ~9.6 kBaud
+  uint8_t mdmcfg3 = 0x83;
+  uint8_t deviatn = 0x24;
+  cc2500_writeRegister(&cc2500_ctx, CC2500_10_MDMCFG4, mdmcfg4);
+  cc2500_writeRegister(&cc2500_ctx, CC2500_11_MDMCFG3, mdmcfg3);
+  cc2500_writeRegister(&cc2500_ctx, CC2500_15_DEVIATN, deviatn);
   
   // ========== 2-FSK МОДУЛЯЦИЯ ==========
   // MDMCFG2: 2-FSK, 16/16 sync word bits
