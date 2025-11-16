@@ -9,39 +9,36 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    
+    strategy:
+      matrix:
+        mcu: [f411, f401]
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-      
+
     - name: Install ARM toolchain
       run: |
         sudo apt-get update
         sudo apt-get install -y gcc-arm-none-eabi make
-        
+
     - name: Verify toolchain
       run: |
         arm-none-eabi-gcc --version
         make --version
-        
-    - name: Build project
+
+    - name: Build project for ${{ matrix.mcu }}
       run: |
         make clean
-        make all
-        
-    - name: Check build artifacts
+        make all MCU_TARGET=${{ matrix.mcu }}
+
+    - name: Check build artifacts for ${{ matrix.mcu }}
       run: |
         ls -la build/
-        file build/F411_CC2500_TRX.elf
-        arm-none-eabi-size build/F411_CC2500_TRX.elf
-        
-    - name: Upload build artifacts
+
+    - name: Upload build artifacts for ${{ matrix.mcu }}
       uses: actions/upload-artifact@v4
       with:
-        name: firmware-build
-        path: |
-          F411_CC2500_TRX/build/F411_CC2500_TRX.elf
-          F411_CC2500_TRX/build/F411_CC2500_TRX.hex
-          F411_CC2500_TRX/build/F411_CC2500_TRX.bin
-          F411_CC2500_TRX/build/F411_CC2500_TRX.map
+        name: firmware-build-${{ matrix.mcu }}
+        path: build/
         retention-days: 30

@@ -13,7 +13,23 @@
 ######################################
 # target
 ######################################
+# Supported MCU targets: f411, f401 (default: f411)
+MCU_TARGET ?= f411
+
+ifeq ($(MCU_TARGET), f411)
 TARGET = F411_CC2500_TRX
+# TARGET = F411_CC2500_TRX
+C_DEFS += -DSTM32F411xE
+ASM_SOURCES = startup_stm32f411xe.s
+LDSCRIPT = STM32F411XX_FLASH.ld
+else ifeq ($(MCU_TARGET), f401)
+TARGET = F401_CC2500_TRX
+C_DEFS += -DSTM32F401xC
+ASM_SOURCES = startup_stm32f401xc.s
+LDSCRIPT = STM32F401CCUX_FLASH.ld
+else
+$(error "Unsupported MCU_TARGET: $(MCU_TARGET). Use 'f411' or 'f401'")
+endif
 
 
 ######################################
@@ -58,15 +74,9 @@ Core/Src/sysmem.c \
 Core/Src/syscalls.c \
 Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_spi.c
 
-# ASM sources
-ASM_SOURCES =  \
-startup_stm32f411xe.s
 
 # ASMM sources
 ASMM_SOURCES = 
-
-# ASMMC sources
-ASMMC_SOURCE = 
 
 
 #######################################
@@ -109,9 +119,8 @@ MCU = $(CPU) -mthumb $(FPU) $(FLOAT-ABI)
 AS_DEFS = 
 
 # C defines
-C_DEFS =  \
--DUSE_HAL_DRIVER \
--DSTM32F411xE
+C_DEFS +=  \
+-DUSE_HAL_DRIVER
 
 
 # AS includes
@@ -143,8 +152,6 @@ CFLAGS += -MMD -MP -MF"$(@:%.o=%.d)"
 #######################################
 # LDFLAGS
 #######################################
-# link script
-LDSCRIPT = STM32F411XX_FLASH.ld
 
 # libraries
 LIBS = -lc -lm -lnosys 
