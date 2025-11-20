@@ -231,8 +231,9 @@ static void handle_help(void) {
         "  help                  - Show this message\r\n"
         "  reboot                - Reboot the device\r\n"
         "  get_status            - Get CC2500 status registers\r\n"
-        "  set_baud <rate>       - Set baud rate (e.g., 9600, 38400, 250000)\r\n"
-        "  set_freq <kHz>        - Set frequency in kHz (e.g., 2405000)\r\n"
+        "  set_baud <rate>       - Set baud rate (1200, 2400, 4800, 9600, 19200, \r\n"
+        "                                   38400, 57600, 125000, 250000, 500000)\r\n"
+        "  set_freq <kHz>        - Set frequency in kHz (2'400'000-2'483'500)\r\n"
         "  set_mod <type>        - Set modulation (2FSK, GFSK, OOK/ASK, MSK)\r\n"
         "  set_dev <kHz>         - Set frequency deviation in kHz (up to 500)\r\n"
         "  set_power <dBm>       - Set output power (1, 0, -2, -4, -6, -10, ... -30)\r\n";
