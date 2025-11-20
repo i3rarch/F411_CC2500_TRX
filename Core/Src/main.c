@@ -156,7 +156,7 @@ int main(void)
   cc2500_writeRegister(&cc2500_ctx, CC2500_3E_PATABLE, 0xC0);
   
   // ========== НАСТРОЙКА ПАКЕТОВ ==========
-  cc2500_writeRegister(&cc2500_ctx, CC2500_06_PKTLEN, 32); // Длина пакета
+  cc2500_writeRegister(&cc2500_ctx, CC2500_06_PKTLEN, 8); // Длина пакета
   
   // PKTCTRL1: CRC autoflush выключен, append status выключен
   cc2500_writeRegister(&cc2500_ctx, CC2500_07_PKTCTRL1, 0x00);
@@ -179,11 +179,13 @@ int main(void)
     HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
     
     // ========== Простое сообщение для теста ==========
-    uint8_t tx_buffer[6];
-    sprintf((char*)tx_buffer, "PING%d", counter++);
+    uint8_t tx_buffer[8]; // Увеличен размер буфера
+    int message_len = sprintf((char*)tx_buffer, "PING%d", counter++);
     
     // Отправка пакета
-    cc2500_transmit(&cc2500_ctx, tx_buffer, strlen((char*)tx_buffer));
+    if (message_len > 0) {
+        cc2500_transmit(&cc2500_ctx, tx_buffer, sizeof(tx_buffer));
+    }
 
     // Пауза между пакетами
     HAL_Delay(500);
