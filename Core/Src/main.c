@@ -158,11 +158,11 @@ int main(void)
   // ========== НАСТРОЙКА ПАКЕТОВ ==========
   cc2500_writeRegister(&cc2500_ctx, CC2500_06_PKTLEN, 32); // Длина пакета
   
-  // PKTCTRL1: CRC autoflush, append status
-  cc2500_writeRegister(&cc2500_ctx, CC2500_07_PKTCTRL1, 0x04);
+  // PKTCTRL1: CRC autoflush выключен, append status выключен
+  cc2500_writeRegister(&cc2500_ctx, CC2500_07_PKTCTRL1, 0x00);
   
-  // PKTCTRL0: Фиксированная длина, CRC включен, whitening выключен
-  cc2500_writeRegister(&cc2500_ctx, CC2500_08_PKTCTRL0, 0x04);
+  // PKTCTRL0: Фиксированная длина, CRC выключен, whitening выключен
+  cc2500_writeRegister(&cc2500_ctx, CC2500_08_PKTCTRL0, 0x00);
   
   /* USER CODE END 2 */
 
@@ -178,37 +178,14 @@ int main(void)
     
     HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
     
-    // ========== ПРОСТОЙ FSK ПАКЕТ ==========
-    uint8_t test_data[32] = {
-        // Преамбула для синхронизации приемника
-        0xAA, 0xAA,  // 10101010 - clock recovery
-        
-        // Sync word добавляется автоматически (0xD391)
-        
-        // Заголовок пакета
-        0x48, 0x45, 0x4C, 0x4C, 0x4F,  // "HELLO"
-        
-        // Данные с паттерном
-        0x00, 0xFF, 0x00, 0xFF,  // Чередование
-        0x55, 0xAA, 0x55, 0xAA,  // Инверсия
-        
-        // Счетчик (инкрементируется каждый раз)
-        counter++,
-        counter,
-        counter + 1,
-        counter + 2,
-        
-        // Тестовые данные
-        0x12, 0x34, 0x56, 0x78,
-        0x9A, 0xBC, 0xDE, 0xF0,
-        
-        // Завершающий паттерн
-        0xAA, 0x55, 0xAA, 0x55
-    };
+    // ========== Простое сообщение для теста ==========
+    uint8_t tx_buffer[6];
+    sprintf((char*)tx_buffer, "PING%d", counter++);
     
-    cc2500_transmit(&cc2500_ctx, test_data, sizeof(test_data));
+    // Отправка пакета
+    cc2500_transmit(&cc2500_ctx, tx_buffer, strlen((char*)tx_buffer));
 
-    // Пауза между пакетами (2 раза в секунду)
+    // Пауза между пакетами
     HAL_Delay(500);
 
   }
