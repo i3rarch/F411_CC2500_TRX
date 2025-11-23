@@ -72,6 +72,10 @@ void cc2500_setRxEnabled(CC2500CTX* ctx, uint8_t enable);
 int cc2500_transmit(CC2500CTX* ctx, const uint8_t* data, uint8_t length);
 int cc2500_receive(CC2500CTX* ctx, uint8_t* data, uint8_t* length);
 
+// Функции для работы с RSSI и LQI
+int8_t cc2500_getRSSI(CC2500CTX* ctx);
+uint8_t cc2500_getLQI(CC2500CTX* ctx, uint8_t* crc_ok);
+
 #define cc2500_readStatusRegister(ctx, addr, value) cc2500_readRegisterBurst(ctx, addr, value, 1)
 
 #endif /* CC2500_H_ */

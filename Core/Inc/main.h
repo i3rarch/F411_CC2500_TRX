@@ -72,6 +72,11 @@ void Error_Handler(void);
 
 /* USER CODE BEGIN Private defines */
 
+// ========== Режим работы CC2500 ==========
+// Раскомментируйте одну из строк для выбора режима
+//#define MODE_TX  // Режим передачи
+#define MODE_RX  // Режим приема
+
 /* USER CODE END Private defines */
 
 #ifdef __cplusplus

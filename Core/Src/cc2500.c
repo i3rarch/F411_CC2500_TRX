@@ -13,28 +13,29 @@
 #define CS_DOWN(ctx) HAL_GPIO_WritePin((ctx)->selector.port, (ctx)->selector.pin, GPIO_PIN_RESET)
 #define SPITIMEOUT 500
 
-// Конфигурационные данные для CC2500
+// Упрощенная конфигурация для CC2500
+// 2-FSK модуляция, без CRC, минимальное синхрослово
 static const uint8_t cc2500_config[][2] = {
     {CC2500_02_IOCFG0,    0x06},   // GDO0 - Packet received/transmitted
-    {CC2500_00_IOCFG2,    0x0C},   // GDO2 - Serial data output
-    {CC2500_07_PKTCTRL1,  0x04},   // Packet control
-    {CC2500_08_PKTCTRL0,  0x05},   // Packet control
-    {CC2500_06_PKTLEN,    0xFF},   // Packet length
+    {CC2500_00_IOCFG2,    0x06},   // GDO2 - Packet received/transmitted
+    {CC2500_07_PKTCTRL1,  0x00},   // Packet control: CRC autoflush OFF, append status OFF
+    {CC2500_08_PKTCTRL0,  0x00},   // Packet control: Fixed length, CRC OFF, whitening OFF
+    {CC2500_06_PKTLEN,    0x08},   // Packet length: 8 bytes
     {CC2500_04_SYNC1,     0xD3},   // Sync word high byte
     {CC2500_05_SYNC0,     0x91},   // Sync word low byte
     {CC2500_09_ADDR,      0x00},   // Device address
     {CC2500_0A_CHANNR,    0x00},   // Channel number
     {CC2500_0B_FSCTRL1,   0x0A},   // Frequency synthesizer control
     {CC2500_0C_FSCTRL0,   0x00},   // Frequency synthesizer control
-    {CC2500_0D_FREQ2,     0x5D},   // Frequency control word, high byte
-    {CC2500_0E_FREQ1,     0x93},   // Frequency control word, middle byte
-    {CC2500_0F_FREQ0,     0xB1},   // Frequency control word, low byte
-    {CC2500_10_MDMCFG4,   0x2D},   // Modem configuration
-    {CC2500_11_MDMCFG3,   0x3B},   // Modem configuration
-    {CC2500_12_MDMCFG2,   0x73},   // Modem configuration
+    {CC2500_0D_FREQ2,     0x5C},   // Frequency: 2405 MHz high byte
+    {CC2500_0E_FREQ1,     0x7F},   // Frequency: 2405 MHz middle byte
+    {CC2500_0F_FREQ0,     0xFA},   // Frequency: 2405 MHz low byte
+    {CC2500_10_MDMCFG4,   0xE7},   // Modem configuration: data rate ~9.6 kBaud
+    {CC2500_11_MDMCFG3,   0x83},   // Modem configuration
+    {CC2500_12_MDMCFG2,   0x03},   // 2-FSK, 16/16 sync word bits
     {CC2500_13_MDMCFG1,   0x22},   // Modem configuration
     {CC2500_14_MDMCFG0,   0xF8},   // Modem configuration
-    {CC2500_15_DEVIATN,   0x00},   // Modem deviation setting
+    {CC2500_15_DEVIATN,   0x24},   // Modem deviation setting
     {CC2500_17_MCSM1,     0x0C},   // Main Radio Cntrl State Machine config
     {CC2500_18_MCSM0,     0x18},   // Main Radio Cntrl State Machine config
     {CC2500_19_FOCCFG,    0x1D},   // Frequency Offset Compensation config
@@ -395,27 +396,55 @@ int cc2500_transmit(CC2500CTX* ctx, const uint8_t* data, uint8_t length)
 int cc2500_receive(CC2500CTX* ctx, uint8_t* data, uint8_t* length)
 {
     uint8_t rxbytes;
-    
+
     // Переход в режим приема
     cc2500_setRxMode(ctx);
-    
+
     // Проверка наличия данных в FIFO
     cc2500_readRegister(ctx, CC2500_3B_RXBYTES, &rxbytes);
-    
+
     if (rxbytes & 0x7F) {  // Есть данные в FIFO
         // Чтение длины пакета
         cc2500_readRegister(ctx, CC2500_3F_RXFIFO, length);
-        
+
         if (*length <= 64) {  // Проверка корректности длины
             // Чтение данных
             cc2500_readRegisterBurst(ctx, CC2500_3F_RXFIFO, data, *length);
-            
+
             // Очистка RX FIFO
             cc2500_strobe(ctx, CC2500_SFRX);
-            
+
             return 0;
         }
     }
-    
+
     return -1;
+}
+
+// Получение RSSI (Received Signal Strength Indicator)
+int8_t cc2500_getRSSI(CC2500CTX* ctx)
+{
+    uint8_t rssi_raw;
+    cc2500_readRegister(ctx, CC2500_34_RSSI, &rssi_raw);
+
+    // Конвертация в dBm согласно datasheet CC2500
+    // RSSI_dBm = (RSSI_dec / 2) - 74
+    int16_t rssi_dbm = ((int16_t)rssi_raw / 2) - 74;
+
+    return (int8_t)rssi_dbm;
+}
+
+// Получение LQI (Link Quality Indicator)
+uint8_t cc2500_getLQI(CC2500CTX* ctx, uint8_t* crc_ok)
+{
+    uint8_t lqi_raw;
+    cc2500_readRegister(ctx, CC2500_33_LQI, &lqi_raw);
+
+    // Бит 7 - CRC_OK
+    if (crc_ok) {
+        *crc_ok = (lqi_raw & CC2500_LQI_CRC_OK_BM) ? 1 : 0;
+    }
+
+    // Биты [6:0] - LQI estimate
+    return lqi_raw & CC2500_LQI_EST_BM;
 }
