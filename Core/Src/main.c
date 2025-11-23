@@ -53,6 +53,9 @@ DMA_HandleTypeDef hdma_spi1_tx;
 /* USER CODE BEGIN PV */
 CC2500CTX cc2500_ctx;
 
+// Глобальный флаг отладки
+volatile uint8_t debug_mode = 0;
+
 #ifdef MODE_RX
 // Переменные для режима приема
 volatile uint8_t rx_packet_received = 0;
@@ -100,12 +103,20 @@ void cc2500_GDO_IRQHandler(uint16_t GPIO_Pin)
 void process_rx_packet(void)
 {
     uint8_t rxbytes;
+    uint8_t marcstate;
+    uint8_t pktstatus;
+
+    // Проверка состояния чипа
+    marcstate = cc2500_getState(&cc2500_ctx);
 
     // Проверка наличия данных в FIFO
     cc2500_readRegister(&cc2500_ctx, CC2500_3B_RXBYTES, &rxbytes);
+    cc2500_readRegister(&cc2500_ctx, CC2500_38_PKTSTATUS, &pktstatus);
 
-    if ((rxbytes & 0x7F) > 0) {  // Есть данные в FIFO
-        // Чтение данных (фиксированная длина 8 байт)
+    if ((rxbytes & 0x7F) >= 8) {  // Есть как минимум 8 байт данных в FIFO
+        // ВАЖНО: В режиме фиксированной длины пакета (PKTCTRL0=0x00),
+        // первый байт в RX FIFO - это СРАЗУ ДАННЫЕ, а не длина пакета!
+        // Поэтому читаем напрямую 8 байт данных
         rx_length = 8;
         cc2500_readRegisterBurst(&cc2500_ctx, CC2500_3F_RXFIFO, rx_buffer, rx_length);
 
@@ -121,7 +132,7 @@ void process_rx_packet(void)
         rx_packet_count++;
 
         // Форматирование и отправка через USB CDC
-        char usb_buffer[256];
+        char usb_buffer[400];
         int pos = 0;
 
         // Временная метка
@@ -143,8 +154,16 @@ void process_rx_packet(void)
         }
 
         // RSSI, LQI и статистика
-        pos += sprintf(usb_buffer + pos, " | RSSI: %d dBm, LQI: %u, PKT: %lu\r\n",
+        pos += sprintf(usb_buffer + pos, " | RSSI: %d dBm, LQI: %u, PKT: %lu",
                       rssi, lqi, rx_packet_count);
+
+        // Отладочная информация (если включен режим отладки)
+        if (debug_mode) {
+            pos += sprintf(usb_buffer + pos, "\r\n  DEBUG: RXBYTES=0x%02X, MARCSTATE=0x%02X, PKTSTATUS=0x%02X",
+                          rxbytes, marcstate, pktstatus);
+        }
+
+        pos += sprintf(usb_buffer + pos, "\r\n");
 
         // Отправка через USB CDC
         CDC_Transmit_FS((uint8_t*)usb_buffer, pos);
@@ -153,6 +172,19 @@ void process_rx_packet(void)
         cc2500_strobe(&cc2500_ctx, CC2500_SFRX);
 
         // Возврат в режим приема
+        cc2500_setRxMode(&cc2500_ctx);
+    } else {
+        // Недостаточно данных в FIFO или прерывание сработало преждевременно
+        if (debug_mode) {
+            char debug_msg[100];
+            sprintf(debug_msg, "DEBUG: Spurious interrupt, RXBYTES=0x%02X, MARCSTATE=0x%02X\r\n",
+                    rxbytes, marcstate);
+            CDC_Transmit_FS((uint8_t*)debug_msg, strlen(debug_msg));
+        }
+        rx_error_count++;
+
+        // Очистка FIFO и возврат в RX
+        cc2500_strobe(&cc2500_ctx, CC2500_SFRX);
         cc2500_setRxMode(&cc2500_ctx);
     }
 }

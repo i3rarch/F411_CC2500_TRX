@@ -24,6 +24,8 @@ static void handle_set_mod(char* mod_str);
 static void handle_set_dev(uint32_t dev_khz);
 static void handle_set_power(int8_t power_dbm);
 static void handle_help(void);
+static void handle_dump_regs(void);
+static void handle_debug(char* arg);
 
 // Инициализация
 void cli_init(CC2500CTX* cc2500_context) {
@@ -73,6 +75,10 @@ static void process_command(char* cmd) {
         handle_get_status();
     } else if (strcmp(cmd, "help") == 0) {
         handle_help();
+    } else if (strcmp(cmd, "dump_regs") == 0) {
+        handle_dump_regs();
+    } else if (sscanf(cmd, "debug %15s", str_value) == 1) {
+        handle_debug(str_value);
     } else if (strcmp(cmd, "reboot") == 0) {
         cli_transmit("Rebooting system...\r\n");
         HAL_Delay(100);
@@ -231,6 +237,8 @@ static void handle_help(void) {
         "  help                  - Show this message\r\n"
         "  reboot                - Reboot the device\r\n"
         "  get_status            - Get CC2500 status registers\r\n"
+        "  dump_regs             - Dump all CC2500 registers\r\n"
+        "  debug <on|off>        - Enable/disable debug output\r\n"
         "  set_baud <rate>       - Set baud rate (1200, 2400, 4800, 9600, 19200, \r\n"
         "                                   38400, 57600, 125000, 250000, 500000)\r\n"
         "  set_freq <kHz>        - Set frequency in kHz (2'400'000-2'483'500)\r\n"
@@ -238,4 +246,24 @@ static void handle_help(void) {
         "  set_dev <kHz>         - Set frequency deviation in kHz (up to 500)\r\n"
         "  set_power <dBm>       - Set output power (1, 0, -2, -4, -6, -10, ... -30)\r\n";
     cli_transmit(help_msg);
+}
+
+static void handle_dump_regs(void) {
+    cli_transmit("Dumping CC2500 registers...\r\n");
+    HAL_Delay(10);
+    cc2500_dumpRegisters(p_cc2500_ctx);
+}
+
+static void handle_debug(char* arg) {
+    extern volatile uint8_t debug_mode;
+
+    if (strcmp(arg, "on") == 0) {
+        debug_mode = 1;
+        cli_transmit("Debug mode enabled\r\n");
+    } else if (strcmp(arg, "off") == 0) {
+        debug_mode = 0;
+        cli_transmit("Debug mode disabled\r\n");
+    } else {
+        cli_transmit("Usage: debug <on|off>\r\n");
+    }
 }

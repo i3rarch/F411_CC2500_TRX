@@ -76,6 +76,10 @@ int cc2500_receive(CC2500CTX* ctx, uint8_t* data, uint8_t* length);
 int8_t cc2500_getRSSI(CC2500CTX* ctx);
 uint8_t cc2500_getLQI(CC2500CTX* ctx, uint8_t* crc_ok);
 
+// Отладочные функции
+void cc2500_dumpRegisters(CC2500CTX* ctx);
+uint8_t cc2500_getState(CC2500CTX* ctx);
+
 #define cc2500_readStatusRegister(ctx, addr, value) cc2500_readRegisterBurst(ctx, addr, value, 1)
 
 #endif /* CC2500_H_ */
