@@ -376,19 +376,17 @@ int cc2500_transmit(CC2500CTX* ctx, const uint8_t* data, uint8_t length)
 {
     // Очистка TX FIFO
     cc2500_strobe(ctx, CC2500_SFTX);
-    
-    // Запись длины пакета
-    cc2500_writeRegister(ctx, CC2500_3F_TXFIFO, length);
-    
-    // Запись данных в FIFO
+
+    // В режиме фиксированной длины (PKTCTRL0=0x00) НЕ нужно передавать байт длины!
+    // Просто записываем данные напрямую в FIFO
     cc2500_writeRegisterBurst(ctx, CC2500_3F_TXFIFO, data, length);
-    
+
     // Переход в режим передачи
     cc2500_setTxMode(ctx);
-    
+
     // Ожидание завершения передачи
     cc2500_waitForState(ctx, CC2500_STATE_IDLE);
-    
+
     return 0;
 }
 
@@ -457,64 +455,36 @@ uint8_t cc2500_getState(CC2500CTX* ctx)
     return marcstate;
 }
 
-// Дамп всех регистров CC2500 через USB CDC
+// Глобальная структура для хранения дампа регистров
+CC2500_RegDump g_cc2500_dump = {0};
+
+// Дамп всех регистров CC2500 в глобальную структуру
+// Используйте отладчик для просмотра g_cc2500_dump
 void cc2500_dumpRegisters(CC2500CTX* ctx)
 {
-    extern int CDC_Transmit_FS(uint8_t* Buf, uint16_t Len);
-    char buffer[128];
-    uint8_t value;
-
     // Конфигурационные регистры
-    const uint8_t config_regs[] = {
-        CC2500_00_IOCFG2, CC2500_02_IOCFG0,
-        CC2500_06_PKTLEN, CC2500_07_PKTCTRL1, CC2500_08_PKTCTRL0,
-        CC2500_04_SYNC1, CC2500_05_SYNC0,
-        CC2500_0D_FREQ2, CC2500_0E_FREQ1, CC2500_0F_FREQ0,
-        CC2500_10_MDMCFG4, CC2500_11_MDMCFG3, CC2500_12_MDMCFG2,
-        CC2500_13_MDMCFG1, CC2500_14_MDMCFG0, CC2500_15_DEVIATN
-    };
-
-    const char* config_names[] = {
-        "IOCFG2", "IOCFG0",
-        "PKTLEN", "PKTCTRL1", "PKTCTRL0",
-        "SYNC1", "SYNC0",
-        "FREQ2", "FREQ1", "FREQ0",
-        "MDMCFG4", "MDMCFG3", "MDMCFG2",
-        "MDMCFG1", "MDMCFG0", "DEVIATN"
-    };
-
-    CDC_Transmit_FS((uint8_t*)"\r\n=== CC2500 Configuration Registers ===\r\n", 42);
-
-    for (int i = 0; i < sizeof(config_regs); i++) {
-        cc2500_readRegister(ctx, config_regs[i], &value);
-        int len = sprintf(buffer, "%s (0x%02X): 0x%02X\r\n", config_names[i], config_regs[i], value);
-        CDC_Transmit_FS((uint8_t*)buffer, len);
-    }
+    cc2500_readRegister(ctx, CC2500_00_IOCFG2, &g_cc2500_dump.iocfg2);
+    cc2500_readRegister(ctx, CC2500_02_IOCFG0, &g_cc2500_dump.iocfg0);
+    cc2500_readRegister(ctx, CC2500_06_PKTLEN, &g_cc2500_dump.pktlen);
+    cc2500_readRegister(ctx, CC2500_07_PKTCTRL1, &g_cc2500_dump.pktctrl1);
+    cc2500_readRegister(ctx, CC2500_08_PKTCTRL0, &g_cc2500_dump.pktctrl0);
+    cc2500_readRegister(ctx, CC2500_04_SYNC1, &g_cc2500_dump.sync1);
+    cc2500_readRegister(ctx, CC2500_05_SYNC0, &g_cc2500_dump.sync0);
+    cc2500_readRegister(ctx, CC2500_0D_FREQ2, &g_cc2500_dump.freq2);
+    cc2500_readRegister(ctx, CC2500_0E_FREQ1, &g_cc2500_dump.freq1);
+    cc2500_readRegister(ctx, CC2500_0F_FREQ0, &g_cc2500_dump.freq0);
+    cc2500_readRegister(ctx, CC2500_10_MDMCFG4, &g_cc2500_dump.mdmcfg4);
+    cc2500_readRegister(ctx, CC2500_11_MDMCFG3, &g_cc2500_dump.mdmcfg3);
+    cc2500_readRegister(ctx, CC2500_12_MDMCFG2, &g_cc2500_dump.mdmcfg2);
+    cc2500_readRegister(ctx, CC2500_13_MDMCFG1, &g_cc2500_dump.mdmcfg1);
+    cc2500_readRegister(ctx, CC2500_14_MDMCFG0, &g_cc2500_dump.mdmcfg0);
+    cc2500_readRegister(ctx, CC2500_15_DEVIATN, &g_cc2500_dump.deviatn);
 
     // Статусные регистры
-    CDC_Transmit_FS((uint8_t*)"\r\n=== Status Registers ===\r\n", 29);
-
-    cc2500_readRegister(ctx, CC2500_35_MARCSTATE, &value);
-    sprintf(buffer, "MARCSTATE: 0x%02X\r\n", value);
-    CDC_Transmit_FS((uint8_t*)buffer, strlen(buffer));
-
-    cc2500_readRegister(ctx, CC2500_38_PKTSTATUS, &value);
-    sprintf(buffer, "PKTSTATUS: 0x%02X\r\n", value);
-    CDC_Transmit_FS((uint8_t*)buffer, strlen(buffer));
-
-    cc2500_readRegister(ctx, CC2500_3B_RXBYTES, &value);
-    sprintf(buffer, "RXBYTES: 0x%02X (%d bytes in FIFO)\r\n", value, value & 0x7F);
-    CDC_Transmit_FS((uint8_t*)buffer, strlen(buffer));
-
-    cc2500_readRegister(ctx, CC2500_3A_TXBYTES, &value);
-    sprintf(buffer, "TXBYTES: 0x%02X\r\n", value);
-    CDC_Transmit_FS((uint8_t*)buffer, strlen(buffer));
-
-    cc2500_readRegister(ctx, CC2500_34_RSSI, &value);
-    sprintf(buffer, "RSSI: 0x%02X (%d dBm)\r\n", value, ((int16_t)value / 2) - 74);
-    CDC_Transmit_FS((uint8_t*)buffer, strlen(buffer));
-
-    cc2500_readRegister(ctx, CC2500_33_LQI, &value);
-    sprintf(buffer, "LQI: 0x%02X\r\n\r\n", value);
-    CDC_Transmit_FS((uint8_t*)buffer, strlen(buffer));
+    cc2500_readRegister(ctx, CC2500_35_MARCSTATE, &g_cc2500_dump.marcstate);
+    cc2500_readRegister(ctx, CC2500_38_PKTSTATUS, &g_cc2500_dump.pktstatus);
+    cc2500_readRegister(ctx, CC2500_3B_RXBYTES, &g_cc2500_dump.rxbytes);
+    cc2500_readRegister(ctx, CC2500_3A_TXBYTES, &g_cc2500_dump.txbytes);
+    cc2500_readRegister(ctx, CC2500_34_RSSI, &g_cc2500_dump.rssi);
+    cc2500_readRegister(ctx, CC2500_33_LQI, &g_cc2500_dump.lqi);
 }

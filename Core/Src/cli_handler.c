@@ -249,8 +249,8 @@ static void handle_help(void) {
 }
 
 static void handle_dump_regs(void) {
-    cli_transmit("Dumping CC2500 registers...\r\n");
     cc2500_dumpRegisters(p_cc2500_ctx);
+    cli_transmit("Registers dumped to g_cc2500_dump - check with debugger\r\n");
 }
 
 static void handle_debug(char* arg) {
