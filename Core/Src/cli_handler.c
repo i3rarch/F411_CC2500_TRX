@@ -250,7 +250,6 @@ static void handle_help(void) {
 
 static void handle_dump_regs(void) {
     cli_transmit("Dumping CC2500 registers...\r\n");
-    HAL_Delay(10);
     cc2500_dumpRegisters(p_cc2500_ctx);
 }
 

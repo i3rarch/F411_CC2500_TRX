@@ -489,7 +489,6 @@ void cc2500_dumpRegisters(CC2500CTX* ctx)
         cc2500_readRegister(ctx, config_regs[i], &value);
         int len = sprintf(buffer, "%s (0x%02X): 0x%02X\r\n", config_names[i], config_regs[i], value);
         CDC_Transmit_FS((uint8_t*)buffer, len);
-        HAL_Delay(5);  // Небольшая задержка для USB
     }
 
     // Статусные регистры
@@ -498,27 +497,22 @@ void cc2500_dumpRegisters(CC2500CTX* ctx)
     cc2500_readRegister(ctx, CC2500_35_MARCSTATE, &value);
     sprintf(buffer, "MARCSTATE: 0x%02X\r\n", value);
     CDC_Transmit_FS((uint8_t*)buffer, strlen(buffer));
-    HAL_Delay(5);
 
     cc2500_readRegister(ctx, CC2500_38_PKTSTATUS, &value);
     sprintf(buffer, "PKTSTATUS: 0x%02X\r\n", value);
     CDC_Transmit_FS((uint8_t*)buffer, strlen(buffer));
-    HAL_Delay(5);
 
     cc2500_readRegister(ctx, CC2500_3B_RXBYTES, &value);
     sprintf(buffer, "RXBYTES: 0x%02X (%d bytes in FIFO)\r\n", value, value & 0x7F);
     CDC_Transmit_FS((uint8_t*)buffer, strlen(buffer));
-    HAL_Delay(5);
 
     cc2500_readRegister(ctx, CC2500_3A_TXBYTES, &value);
     sprintf(buffer, "TXBYTES: 0x%02X\r\n", value);
     CDC_Transmit_FS((uint8_t*)buffer, strlen(buffer));
-    HAL_Delay(5);
 
     cc2500_readRegister(ctx, CC2500_34_RSSI, &value);
     sprintf(buffer, "RSSI: 0x%02X (%d dBm)\r\n", value, ((int16_t)value / 2) - 74);
     CDC_Transmit_FS((uint8_t*)buffer, strlen(buffer));
-    HAL_Delay(5);
 
     cc2500_readRegister(ctx, CC2500_33_LQI, &value);
     sprintf(buffer, "LQI: 0x%02X\r\n\r\n", value);
