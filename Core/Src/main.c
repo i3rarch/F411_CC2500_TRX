@@ -243,6 +243,10 @@ int main(void)
   MX_USB_DEVICE_Init();
   /* USER CODE BEGIN 2 */
   
+  // Определение режима работы через пин TRX_SEL (PA0)
+  // HIGH = TX mode, LOW = RX mode
+  is_tx_mode = (HAL_GPIO_ReadPin(TRX_SEL_GPIO_Port, TRX_SEL_Pin) == GPIO_PIN_SET) ? 1 : 0;
+  
   // Инициализация обработчика команд
   cli_init(&cc2500_ctx);
 
@@ -259,97 +263,77 @@ int main(void)
   cc2500_reset(&cc2500_ctx);
   HAL_Delay(100);
 
-  // Базовая конфигурация (уже содержит все настройки)
   cc2500_configure(&cc2500_ctx);
   HAL_Delay(10);
 
-  // Установка мощности передатчика (PA value = 0x50)
+  // Установка мощности передатчика
   cc2500_writeRegister(&cc2500_ctx, CC2500_3E_PATABLE, 0x50);
 
-#ifdef MODE_RX
-  // ========== РЕЖИМ ПРИЕМА ==========
-  // Включение прерываний для GDO пинов
-  HAL_NVIC_SetPriority(EXTI0_IRQn, 5, 0);
-  HAL_NVIC_EnableIRQ(EXTI0_IRQn);
-  HAL_NVIC_SetPriority(EXTI1_IRQn, 5, 0);
-  HAL_NVIC_EnableIRQ(EXTI1_IRQn);
+  // Ожидание инициализации USB
+  HAL_Delay(500);
 
-  // Переход в режим приема
-  cc2500_setRxMode(&cc2500_ctx);
+  if (is_tx_mode) {
+    // ========== РЕЖИМ ПЕРЕДАЧИ ==========
+    char init_msg[] = "CC2500 TX Mode (auto-detected via PA0=HIGH)\r\n";
+    CDC_Transmit_FS((uint8_t*)init_msg, strlen(init_msg));
+  } else {
+    // ========== РЕЖИМ ПРИЕМА ==========
+    // Включение прерываний для GDO пинов
+    HAL_NVIC_SetPriority(EXTI0_IRQn, 5, 0);
+    HAL_NVIC_EnableIRQ(EXTI0_IRQn);
+    HAL_NVIC_SetPriority(EXTI1_IRQn, 5, 0);
+    HAL_NVIC_EnableIRQ(EXTI1_IRQn);
 
-  // Сообщение о запуске режима RX
-  char init_msg[] = "CC2500 RX Mode Started - Freq: 2405 MHz, Rate: 9.6 kBaud\r\n";
-  CDC_Transmit_FS((uint8_t*)init_msg, strlen(init_msg));
-#endif
+    // Переход в режим приема
+    cc2500_setRxMode(&cc2500_ctx);
 
-#ifdef MODE_TX
-  // ========== РЕЖИМ ПЕРЕДАЧИ ==========
-  // Сообщение о запуске режима TX
-  char init_msg[] = "CC2500 TX Mode Started - Freq: 2405 MHz, Rate: 9.6 kBaud\r\n";
-  CDC_Transmit_FS((uint8_t*)init_msg, strlen(init_msg));
-#endif
+    char init_msg[] = "CC2500 RX Mode (auto-detected via PA0=LOW)\r\n";
+    CDC_Transmit_FS((uint8_t*)init_msg, strlen(init_msg));
+  }
   
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-
-#ifdef MODE_RX
-  // ========== ГЛАВНЫЙ ЦИКЛ РЕЖИМА ПРИЕМА ==========
-  while (1)
-  {
-    /* USER CODE END WHILE */
-
-    /* USER CODE BEGIN 3 */
-
-    // Проверка флага получения пакета
-    if (rx_packet_received) {
-        rx_packet_received = 0;
-        process_rx_packet();
-    }
-
-    // Небольшая задержка для снижения нагрузки на процессор
-    HAL_Delay(1);
-  }
-#endif
-
-#ifdef MODE_TX
-  // ========== ГЛАВНЫЙ ЦИКЛ РЕЖИМА ПЕРЕДАЧИ ==========
   uint8_t counter = 0;
-
+  
   while (1)
   {
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+    
+    if (is_tx_mode) {
+      // ========== ЦИКЛ РЕЖИМА ПЕРЕДАЧИ ==========
+      HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
 
-    HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
+      uint8_t tx_buffer[8];
+      int message_len = sprintf((char*)tx_buffer, "PING%d", counter++);
 
-    // Подготовка пакета для передачи
-    uint8_t tx_buffer[8];
-    int message_len = sprintf((char*)tx_buffer, "PING%d", counter++);
+      for (int i = message_len; i < 8; i++) {
+          tx_buffer[i] = 0;
+      }
 
-    // Дополнение нулями до 8 байт
-    for (int i = message_len; i < 8; i++) {
-        tx_buffer[i] = 0;
+      cc2500_transmit(&cc2500_ctx, tx_buffer, 8);
+      tx_packet_count++;
+
+      if (tx_packet_count % 10 == 0) {
+          char stat_msg[64];
+          sprintf(stat_msg, "TX: %lu packets sent\r\n", tx_packet_count);
+          CDC_Transmit_FS((uint8_t*)stat_msg, strlen(stat_msg));
+      }
+
+      HAL_Delay(500);
+    } else {
+      // ========== ЦИКЛ РЕЖИМА ПРИЕМА ==========
+      if (rx_packet_received) {
+          rx_packet_received = 0;
+          process_rx_packet();
+      }
+
+      HAL_Delay(1);
     }
-
-    // Отправка пакета
-    cc2500_transmit(&cc2500_ctx, tx_buffer, 8);
-    tx_packet_count++;
-
-    // Вывод статистики каждые 10 пакетов
-    if (tx_packet_count % 10 == 0) {
-        char stat_msg[64];
-        sprintf(stat_msg, "TX: %lu packets sent\r\n", tx_packet_count);
-        CDC_Transmit_FS((uint8_t*)stat_msg, strlen(stat_msg));
-    }
-
-    // Пауза между пакетами
-    HAL_Delay(500);
   }
-#endif
-
   /* USER CODE END 3 */
 }
 
@@ -504,7 +488,7 @@ static void MX_GPIO_Init(void)
 
   /*Configure GPIO pins : GD00_Pin GD02_Pin */
   GPIO_InitStruct.Pin = GD00_Pin|GD02_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
