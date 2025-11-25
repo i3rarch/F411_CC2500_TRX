@@ -218,8 +218,8 @@ static void handle_set_power(int8_t power_dbm) {
 
 static void handle_get_status(void) {
     uint8_t partnum, version, marcstate;
-    cc2500_readRegister(p_cc2500_ctx, CC2500_30_PARTNUM, &partnum);
-    cc2500_readRegister(p_cc2500_ctx, CC2500_31_VERSION, &version);
+    cc2500_readStatusRegister(p_cc2500_ctx, CC2500_30_PARTNUM, &partnum);
+    cc2500_readStatusRegister(p_cc2500_ctx, CC2500_31_VERSION, &version);
     cc2500_readStatusRegister(p_cc2500_ctx, CC2500_35_MARCSTATE, &marcstate);
 
     snprintf(tx_buffer, TX_BUFFER_SIZE,

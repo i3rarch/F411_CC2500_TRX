@@ -54,7 +54,7 @@ DMA_HandleTypeDef hdma_spi1_tx;
 CC2500CTX cc2500_ctx;
 
 // Глобальный флаг отладки
-volatile uint8_t debug_mode = 0;
+volatile uint8_t debug_mode = 1;
 
 #ifdef MODE_RX
 // Переменные для режима приема
@@ -110,8 +110,8 @@ void process_rx_packet(void)
     marcstate = cc2500_getState(&cc2500_ctx);
 
     // Проверка наличия данных в FIFO
-    cc2500_readRegister(&cc2500_ctx, CC2500_3B_RXBYTES, &rxbytes);
-    cc2500_readRegister(&cc2500_ctx, CC2500_38_PKTSTATUS, &pktstatus);
+    cc2500_readRegister(&cc2500_ctx, CC2500_3B_RXBYTES, &rxbytes); //замена на cc2500_readStatusRegister не помогла
+    cc2500_readStatusRegister(&cc2500_ctx, CC2500_38_PKTSTATUS, &pktstatus);
 
     if ((rxbytes & 0x7F) >= 8) {  // Есть как минимум 8 байт данных в FIFO
         // ВАЖНО: В режиме фиксированной длины пакета (PKTCTRL0=0x00),
@@ -487,7 +487,7 @@ static void MX_GPIO_Init(void)
 
   /*Configure GPIO pins : GD00_Pin GD02_Pin */
   GPIO_InitStruct.Pin = GD00_Pin|GD02_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING_FALLING;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 

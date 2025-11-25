@@ -423,7 +423,7 @@ int cc2500_receive(CC2500CTX* ctx, uint8_t* data, uint8_t* length)
 int8_t cc2500_getRSSI(CC2500CTX* ctx)
 {
     uint8_t rssi_raw;
-    cc2500_readRegister(ctx, CC2500_34_RSSI, &rssi_raw);
+   cc2500_readStatusRegister(ctx, CC2500_34_RSSI, &rssi_raw);
 
     // Конвертация в dBm согласно datasheet CC2500
     // RSSI_dBm = (RSSI_dec / 2) - 74
@@ -436,7 +436,7 @@ int8_t cc2500_getRSSI(CC2500CTX* ctx)
 uint8_t cc2500_getLQI(CC2500CTX* ctx, uint8_t* crc_ok)
 {
     uint8_t lqi_raw;
-    cc2500_readRegister(ctx, CC2500_33_LQI, &lqi_raw);
+    cc2500_readStatusRegister(ctx, CC2500_33_LQI, &lqi_raw);
 
     // Бит 7 - CRC_OK
     if (crc_ok) {
@@ -451,7 +451,7 @@ uint8_t cc2500_getLQI(CC2500CTX* ctx, uint8_t* crc_ok)
 uint8_t cc2500_getState(CC2500CTX* ctx)
 {
     uint8_t marcstate;
-    cc2500_readRegister(ctx, CC2500_35_MARCSTATE, &marcstate);
+   cc2500_readStatusRegister(ctx, CC2500_35_MARCSTATE, &marcstate);
     return marcstate;
 }
 
@@ -480,11 +480,11 @@ void cc2500_dumpRegisters(CC2500CTX* ctx)
     cc2500_readRegister(ctx, CC2500_14_MDMCFG0, &g_cc2500_dump.mdmcfg0);
     cc2500_readRegister(ctx, CC2500_15_DEVIATN, &g_cc2500_dump.deviatn);
 
-    // Статусные регистры
-    cc2500_readRegister(ctx, CC2500_35_MARCSTATE, &g_cc2500_dump.marcstate);
-    cc2500_readRegister(ctx, CC2500_38_PKTSTATUS, &g_cc2500_dump.pktstatus);
-    cc2500_readRegister(ctx, CC2500_3B_RXBYTES, &g_cc2500_dump.rxbytes);
-    cc2500_readRegister(ctx, CC2500_3A_TXBYTES, &g_cc2500_dump.txbytes);
-    cc2500_readRegister(ctx, CC2500_34_RSSI, &g_cc2500_dump.rssi);
-    cc2500_readRegister(ctx, CC2500_33_LQI, &g_cc2500_dump.lqi);
+    // Статусные регистры (используем Burst Read для корректного чтения)
+    cc2500_readStatusRegister(ctx, CC2500_35_MARCSTATE, &g_cc2500_dump.marcstate);
+    cc2500_readStatusRegister(ctx, CC2500_38_PKTSTATUS, &g_cc2500_dump.pktstatus);
+    cc2500_readStatusRegister(ctx, CC2500_3B_RXBYTES, &g_cc2500_dump.rxbytes);
+    cc2500_readStatusRegister(ctx, CC2500_3A_TXBYTES, &g_cc2500_dump.txbytes);
+    cc2500_readStatusRegister(ctx, CC2500_34_RSSI, &g_cc2500_dump.rssi);
+    cc2500_readStatusRegister(ctx, CC2500_33_LQI, &g_cc2500_dump.lqi);
 }
