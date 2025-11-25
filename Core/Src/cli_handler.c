@@ -194,14 +194,14 @@ static void handle_set_power(int8_t power_dbm) {
     switch (power_dbm) {
         case 1: pa_table_val = 0xFF; break;
         case 0: pa_table_val = 0xFE; break;
-        case -2: pa_table_val = 0xC6; break;
-        case -4: pa_table_val = 0x85; break;
-        case -6: pa_table_val = 0x66; break;
-        case -8: pa_table_val = 0x55; break;
-        case -10: pa_table_val = 0x27; break;
-        case -15: pa_table_val = 0x1D; break;
-        case -20: pa_table_val = 0x0E; break;
-        case -30: pa_table_val = 0x03; break;
+        case -2: pa_table_val = 0xBB; break;
+        case -4: pa_table_val = 0xA9; break;
+        case -6: pa_table_val = 0x7F; break;
+        case -8: pa_table_val = 0x6E; break;
+        case -10: pa_table_val = 0x97; break;
+        case -16: pa_table_val = 0x55; break;
+        case -20: pa_table_val = 0x46; break;
+        case -30: pa_table_val = 0x50; break;
         default:
             supported = 0;
             break;
@@ -244,7 +244,7 @@ static void handle_help(void) {
         "  set_freq <kHz>        - Set frequency in kHz (2'400'000-2'483'500)\r\n"
         "  set_mod <type>        - Set modulation (2FSK, GFSK, OOK/ASK, MSK)\r\n"
         "  set_dev <kHz>         - Set frequency deviation in kHz (up to 500)\r\n"
-        "  set_power <dBm>       - Set output power (1, 0, -2, -4, -6, -10, ... -30)\r\n";
+        "  set_power <dBm>       - Set output power (1, 0, -2, -4, -6, -8, -10, -16, -20, -30)\r\n";
     cli_transmit(help_msg);
 }
 
