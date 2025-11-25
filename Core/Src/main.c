@@ -252,8 +252,8 @@ int main(void)
   cc2500_configure(&cc2500_ctx);
   HAL_Delay(10);
 
-  // Установка мощности передатчика
-  cc2500_writeRegister(&cc2500_ctx, CC2500_3E_PATABLE, 0xC0);
+  // Установка мощности передатчика (PA value = 0x50)
+  cc2500_writeRegister(&cc2500_ctx, CC2500_3E_PATABLE, 0x50);
 
 #ifdef MODE_RX
   // ========== РЕЖИМ ПРИЕМА ==========

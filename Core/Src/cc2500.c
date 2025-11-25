@@ -25,30 +25,30 @@ static const uint8_t cc2500_config[][2] = {
     {CC2500_05_SYNC0,     0x91},   // Sync word low byte
     {CC2500_09_ADDR,      0x00},   // Device address
     {CC2500_0A_CHANNR,    0x00},   // Channel number
-    {CC2500_0B_FSCTRL1,   0x0A},   // Frequency synthesizer control
-    {CC2500_0C_FSCTRL0,   0x00},   // Frequency synthesizer control
+    {CC2500_0B_FSCTRL1,   0x06},   // IF Frequency: 152.34 kHz
+    {CC2500_0C_FSCTRL0,   0x00},   // Frequency offset
     {CC2500_0D_FREQ2,     0x5C},   // Frequency: 2405 MHz high byte
-    {CC2500_0E_FREQ1,     0x7F},   // Frequency: 2405 MHz middle byte
-    {CC2500_0F_FREQ0,     0xFA},   // Frequency: 2405 MHz low byte
-    {CC2500_10_MDMCFG4,   0xE7},   // Modem configuration: data rate ~9.6 kBaud
-    {CC2500_11_MDMCFG3,   0x83},   // Modem configuration
-    {CC2500_12_MDMCFG2,   0x03},   // 2-FSK, 16/16 sync word bits
-    {CC2500_13_MDMCFG1,   0x22},   // Modem configuration
-    {CC2500_14_MDMCFG0,   0xF8},   // Modem configuration
-    {CC2500_15_DEVIATN,   0x24},   // Modem deviation setting
-    {CC2500_17_MCSM1,     0x0C},   // Main Radio Cntrl State Machine config
+    {CC2500_0E_FREQ1,     0x80},   // Frequency: 2405 MHz middle byte
+    {CC2500_0F_FREQ0,     0x00},   // Frequency: 2405 MHz low byte
+    {CC2500_10_MDMCFG4,   0x78},   // Modem configuration: data rate exponent, channel bandwidth
+    {CC2500_11_MDMCFG3,   0x93},   // Modem configuration: data rate mantissa
+    {CC2500_12_MDMCFG2,   0x00},   // 2-FSK, no Manchester, sensitivity optimization
+    {CC2500_13_MDMCFG1,   0x22},   // Channel spacing exponent
+    {CC2500_14_MDMCFG0,   0xF8},   // Channel spacing mantissa
+    {CC2500_15_DEVIATN,   0x44},   // Modem deviation setting
     {CC2500_18_MCSM0,     0x18},   // Main Radio Cntrl State Machine config
-    {CC2500_19_FOCCFG,    0x1D},   // Frequency Offset Compensation config
-    {CC2500_1A_BSCFG,     0x1C},   // Bit Synchronization configuration
-    {CC2500_1B_AGCCTRL2,  0xC7},   // AGC control
-    {CC2500_1C_AGCCTRL1,  0x00},   // AGC control
-    {CC2500_1D_AGCCTRL0,  0xB2},   // AGC control
-    {CC2500_21_FREND1,    0xB6},   // Front end RX configuration
+    {CC2500_19_FOCCFG,    0x16},   // Frequency Offset Compensation config
+    {CC2500_1A_BSCFG,     0x6C},   // Bit Synchronization configuration
+    {CC2500_1B_AGCCTRL2,  0x43},   // AGC control
+    {CC2500_1C_AGCCTRL1,  0x40},   // AGC control
+    {CC2500_1D_AGCCTRL0,  0x91},   // AGC control
+    {CC2500_21_FREND1,    0x56},   // Front end RX configuration
     {CC2500_22_FREND0,    0x10},   // Front end TX configuration
-    {CC2500_23_FSCAL3,    0xEA},   // Frequency synthesizer calibration
+    {CC2500_23_FSCAL3,    0xA9},   // Frequency synthesizer calibration
     {CC2500_24_FSCAL2,    0x0A},   // Frequency synthesizer calibration
     {CC2500_25_FSCAL1,    0x00},   // Frequency synthesizer calibration
     {CC2500_26_FSCAL0,    0x11},   // Frequency synthesizer calibration
+    {CC2500_29_FSTEST,    0x59},   // Frequency synthesizer test
     {CC2500_2C_TEST2,     0x88},   // Various test settings
     {CC2500_2D_TEST1,     0x31},   // Various test settings
     {CC2500_2E_TEST0,     0x0B},   // Various test settings
