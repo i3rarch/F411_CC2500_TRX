@@ -72,6 +72,28 @@ void cc2500_setRxEnabled(CC2500CTX* ctx, uint8_t enable);
 int cc2500_transmit(CC2500CTX* ctx, const uint8_t* data, uint8_t length);
 int cc2500_receive(CC2500CTX* ctx, uint8_t* data, uint8_t* length);
 
+// Функции для работы с RSSI и LQI
+int8_t cc2500_getRSSI(CC2500CTX* ctx);
+uint8_t cc2500_getLQI(CC2500CTX* ctx, uint8_t* crc_ok);
+
+// Отладочные функции
+typedef struct {
+    uint8_t iocfg2, iocfg0;
+    uint8_t pktlen, pktctrl1, pktctrl0;
+    uint8_t sync1, sync0;
+    uint8_t freq2, freq1, freq0;
+    uint8_t mdmcfg4, mdmcfg3, mdmcfg2;
+    uint8_t mdmcfg1, mdmcfg0, deviatn;
+    uint8_t marcstate, pktstatus;
+    uint8_t rxbytes, txbytes;
+    uint8_t rssi, lqi;
+} CC2500_RegDump;
+
+extern CC2500_RegDump g_cc2500_dump;
+
+void cc2500_dumpRegisters(CC2500CTX* ctx);
+uint8_t cc2500_getState(CC2500CTX* ctx);
+
 #define cc2500_readStatusRegister(ctx, addr, value) cc2500_readRegisterBurst(ctx, addr, value, 1)
 
 #endif /* CC2500_H_ */

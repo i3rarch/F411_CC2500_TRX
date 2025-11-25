@@ -259,4 +259,31 @@ void OTG_FS_IRQHandler(void)
 
 /* USER CODE BEGIN 1 */
 
+/**
+  * @brief  GPIO External Interrupt callback
+  * @param  GPIO_Pin: Specifies the pin connected to EXTI line
+  * @retval None
+  */
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+{
+    extern void cc2500_GDO_IRQHandler(uint16_t GPIO_Pin);
+    cc2500_GDO_IRQHandler(GPIO_Pin);
+}
+
+/**
+  * @brief  EXTI line 0 interrupt handler (GDO0)
+  */
+void EXTI0_IRQHandler(void)
+{
+    HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_0);
+}
+
+/**
+  * @brief  EXTI line 1 interrupt handler (GDO2)
+  */
+void EXTI1_IRQHandler(void)
+{
+    HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_1);
+}
+
 /* USER CODE END 1 */
