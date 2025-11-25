@@ -56,19 +56,18 @@ CC2500CTX cc2500_ctx;
 // Глобальный флаг отладки
 volatile uint8_t debug_mode = 1;
 
-#ifdef MODE_RX
+// Режим работы (определяется автоматически)
+volatile uint8_t is_tx_mode = 0;
+
 // Переменные для режима приема
 volatile uint8_t rx_packet_received = 0;
 uint8_t rx_buffer[64];
 uint8_t rx_length = 0;
 uint32_t rx_packet_count = 0;
 uint32_t rx_error_count = 0;
-#endif
 
-#ifdef MODE_TX
 // Переменные для режима передачи
 uint32_t tx_packet_count = 0;
-#endif
 
 /* USER CODE END PV */
 
@@ -89,13 +88,13 @@ void CDC_On_Receive_FS(uint8_t* Buf, uint32_t Len)
     cli_process_input(Buf, Len);
 }
 
-#ifdef MODE_RX
-// Обработчик прерываний GDO
+// Обработчик прерываний GDO (для режима RX)
 void cc2500_GDO_IRQHandler(uint16_t GPIO_Pin)
 {
-    if (GPIO_Pin == GD00_Pin || GPIO_Pin == GD02_Pin) {
-        // Установка флага получения пакета
-        rx_packet_received = 1;
+    if (!is_tx_mode) {  // Только в режиме RX
+        if (GPIO_Pin == GD00_Pin || GPIO_Pin == GD02_Pin) {
+            rx_packet_received = 1;
+        }
     }
 }
 
@@ -110,71 +109,94 @@ void process_rx_packet(void)
     marcstate = cc2500_getState(&cc2500_ctx);
 
     // Проверка наличия данных в FIFO
-    cc2500_readRegister(&cc2500_ctx, CC2500_3B_RXBYTES, &rxbytes); //замена на cc2500_readStatusRegister не помогла
+    cc2500_readStatusRegister(&cc2500_ctx, CC2500_3B_RXBYTES, &rxbytes);
     cc2500_readStatusRegister(&cc2500_ctx, CC2500_38_PKTSTATUS, &pktstatus);
 
-    if ((rxbytes & 0x7F) >= 8) {  // Есть как минимум 8 байт данных в FIFO
-        // ВАЖНО: В режиме фиксированной длины пакета (PKTCTRL0=0x00),
-        // первый байт в RX FIFO - это СРАЗУ ДАННЫЕ, а не длина пакета!
-        // Поэтому читаем напрямую 8 байт данных
-        rx_length = 8;
-        cc2500_readRegisterBurst(&cc2500_ctx, CC2500_3F_RXFIFO, rx_buffer, rx_length);
+    uint8_t fifo_bytes = rxbytes & 0x7F;
+    
+    if (fifo_bytes >= 1) {
+        // Читаем первый байт - длина пакета
+        uint8_t pkt_length;
+        cc2500_readRegister(&cc2500_ctx, CC2500_3F_RXFIFO, &pkt_length);
+        
+        // Проверка корректности длины (макс 61 байт + 2 байта статуса)
+        if (pkt_length <= 61 && (fifo_bytes >= pkt_length + 2)) {
+            // Читаем данные пакета
+            rx_length = pkt_length;
+            cc2500_readRegisterBurst(&cc2500_ctx, CC2500_3F_RXFIFO, rx_buffer, rx_length);
+            
+            // Читаем 2 байта статуса (RSSI и LQI|CRC_OK)
+            uint8_t status_bytes[2];
+            cc2500_readRegisterBurst(&cc2500_ctx, CC2500_3F_RXFIFO, status_bytes, 2);
+            
+            // Парсинг статуса
+            int8_t rssi_raw = (int8_t)status_bytes[0];
+            int8_t rssi_dbm = (rssi_raw / 2) - 74;
+            uint8_t lqi = status_bytes[1] & 0x7F;
+            uint8_t crc_ok = (status_bytes[1] & 0x80) ? 1 : 0;
 
-        // Получение RSSI и LQI
-        int8_t rssi = cc2500_getRSSI(&cc2500_ctx);
-        uint8_t crc_ok = 0;
-        uint8_t lqi = cc2500_getLQI(&cc2500_ctx, &crc_ok);
+            // Переключение LED при получении пакета
+            HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
 
-        // Переключение LED при получении пакета
-        HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
+            // Увеличение счетчика пакетов
+            rx_packet_count++;
 
-        // Увеличение счетчика пакетов
-        rx_packet_count++;
+            // Форматирование и отправка через USB CDC
+            char usb_buffer[400];
+            int pos = 0;
 
-        // Форматирование и отправка через USB CDC
-        char usb_buffer[400];
-        int pos = 0;
+            // Временная метка
+            pos += sprintf(usb_buffer + pos, "[%lu] RX: ", HAL_GetTick());
 
-        // Временная метка
-        pos += sprintf(usb_buffer + pos, "[%lu] RX: ", HAL_GetTick());
-
-        // Данные в HEX
-        for (int i = 0; i < rx_length; i++) {
-            pos += sprintf(usb_buffer + pos, "%02X ", rx_buffer[i]);
-        }
-
-        // ASCII (если печатные символы)
-        pos += sprintf(usb_buffer + pos, "| ASCII: ");
-        for (int i = 0; i < rx_length; i++) {
-            if (rx_buffer[i] >= 32 && rx_buffer[i] <= 126) {
-                usb_buffer[pos++] = rx_buffer[i];
-            } else {
-                usb_buffer[pos++] = '.';
+            // Данные в HEX
+            for (int i = 0; i < rx_length; i++) {
+                pos += sprintf(usb_buffer + pos, "%02X ", rx_buffer[i]);
             }
+
+            // ASCII (если печатные символы)
+            pos += sprintf(usb_buffer + pos, "| ASCII: ");
+            for (int i = 0; i < rx_length; i++) {
+                if (rx_buffer[i] >= 32 && rx_buffer[i] <= 126) {
+                    usb_buffer[pos++] = rx_buffer[i];
+                } else {
+                    usb_buffer[pos++] = '.';
+                }
+            }
+
+            // RSSI, LQI, CRC и статистика
+            pos += sprintf(usb_buffer + pos, " | RSSI: %d dBm, LQI: %u, CRC: %s, PKT: %lu",
+                          rssi_dbm, lqi, crc_ok ? "OK" : "FAIL", rx_packet_count);
+
+            // Отладочная информация
+            if (debug_mode) {
+                pos += sprintf(usb_buffer + pos, "\r\n  DEBUG: LEN=%u, RXBYTES=0x%02X, MARCSTATE=0x%02X",
+                              pkt_length, rxbytes, marcstate);
+            }
+
+            pos += sprintf(usb_buffer + pos, "\r\n");
+
+            // Отправка через USB CDC
+            CDC_Transmit_FS((uint8_t*)usb_buffer, pos);
+
+            // Очистка RX FIFO
+            cc2500_strobe(&cc2500_ctx, CC2500_SFRX);
+
+            // Возврат в режим приема
+            cc2500_setRxMode(&cc2500_ctx);
+        } else {
+            // Некорректная длина или недостаточно данных
+            if (debug_mode) {
+                char debug_msg[100];
+                sprintf(debug_msg, "DEBUG: Invalid packet, LEN=%u, RXBYTES=0x%02X\r\n",
+                        pkt_length, rxbytes);
+                CDC_Transmit_FS((uint8_t*)debug_msg, strlen(debug_msg));
+            }
+            rx_error_count++;
+            cc2500_strobe(&cc2500_ctx, CC2500_SFRX);
+            cc2500_setRxMode(&cc2500_ctx);
         }
-
-        // RSSI, LQI и статистика
-        pos += sprintf(usb_buffer + pos, " | RSSI: %d dBm, LQI: %u, PKT: %lu",
-                      rssi, lqi, rx_packet_count);
-
-        // Отладочная информация (если включен режим отладки)
-        if (debug_mode) {
-            pos += sprintf(usb_buffer + pos, "\r\n  DEBUG: RXBYTES=0x%02X, MARCSTATE=0x%02X, PKTSTATUS=0x%02X",
-                          rxbytes, marcstate, pktstatus);
-        }
-
-        pos += sprintf(usb_buffer + pos, "\r\n");
-
-        // Отправка через USB CDC
-        CDC_Transmit_FS((uint8_t*)usb_buffer, pos);
-
-        // Очистка RX FIFO
-        cc2500_strobe(&cc2500_ctx, CC2500_SFRX);
-
-        // Возврат в режим приема
-        cc2500_setRxMode(&cc2500_ctx);
     } else {
-        // Недостаточно данных в FIFO или прерывание сработало преждевременно
+        // Нет данных в FIFO
         if (debug_mode) {
             char debug_msg[100];
             sprintf(debug_msg, "DEBUG: Spurious interrupt, RXBYTES=0x%02X, MARCSTATE=0x%02X\r\n",
@@ -182,21 +204,10 @@ void process_rx_packet(void)
             CDC_Transmit_FS((uint8_t*)debug_msg, strlen(debug_msg));
         }
         rx_error_count++;
-
-        // Очистка FIFO и возврат в RX
         cc2500_strobe(&cc2500_ctx, CC2500_SFRX);
         cc2500_setRxMode(&cc2500_ctx);
     }
 }
-#else
-// Заглушка для режима TX
-void cc2500_GDO_IRQHandler(uint16_t GPIO_Pin)
-{
-    // В режиме TX прерывания не используются
-}
-#endif
-
-/* USER CODE END 0 */
 
 /**
   * @brief  The application entry point.
@@ -477,6 +488,12 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(LED_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : TRX_SEL_Pin */
+  GPIO_InitStruct.Pin = TRX_SEL_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(TRX_SEL_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pin : CSN_Pin */
   GPIO_InitStruct.Pin = CSN_Pin;

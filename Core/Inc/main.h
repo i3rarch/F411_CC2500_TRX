@@ -59,6 +59,8 @@ void Error_Handler(void);
 /* Private defines -----------------------------------------------------------*/
 #define LED_Pin GPIO_PIN_13
 #define LED_GPIO_Port GPIOC
+#define TRX_SEL_Pin GPIO_PIN_0
+#define TRX_SEL_GPIO_Port GPIOA
 #define CSN_Pin GPIO_PIN_4
 #define CSN_GPIO_Port GPIOA
 #define GD00_Pin GPIO_PIN_0
@@ -72,10 +74,9 @@ void Error_Handler(void);
 
 /* USER CODE BEGIN Private defines */
 
-// ========== Режим работы CC2500 ==========
-// Раскомментируйте одну из строк для выбора режима
-//#define MODE_TX  // Режим передачи
-#define MODE_RX  // Режим приема
+// Режим работы определяется автоматически через пин TRX_SEL (PA0)
+// PA0 = HIGH (1) -> MODE_TX
+// PA0 = LOW  (0) -> MODE_RX
 
 /* USER CODE END Private defines */
 

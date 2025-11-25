@@ -13,14 +13,14 @@
 #define CS_DOWN(ctx) HAL_GPIO_WritePin((ctx)->selector.port, (ctx)->selector.pin, GPIO_PIN_RESET)
 #define SPITIMEOUT 500
 
-// Упрощенная конфигурация для CC2500
-// 2-FSK модуляция, без CRC, минимальное синхрослово
+// Конфигурация для CC2500 (Packet TX/RX режим из SmartRF Studio)
+// Variable length packets, CRC enabled, status append
 static const uint8_t cc2500_config[][2] = {
-    {CC2500_02_IOCFG0,    0x06},   // GDO0 - Packet received/transmitted
-    {CC2500_00_IOCFG2,    0x06},   // GDO2 - Packet received/transmitted
-    {CC2500_07_PKTCTRL1,  0x00},   // Packet control: CRC autoflush OFF, append status OFF
-    {CC2500_08_PKTCTRL0,  0x00},   // Packet control: Fixed length, CRC OFF, whitening OFF
-    {CC2500_06_PKTLEN,    0x08},   // Packet length: 8 bytes
+    {CC2500_02_IOCFG0,    0x06},   // GDO0 - Asserts when sync word sent/received
+    {CC2500_00_IOCFG2,    0x06},   // GDO2 - Asserts when sync word sent/received
+    {CC2500_07_PKTCTRL1,  0x04},   // Append status (RSSI, LQI, CRC_OK), no address check
+    {CC2500_08_PKTCTRL0,  0x05},   // Variable length, CRC enabled, whitening OFF
+    {CC2500_06_PKTLEN,    0x3D},   // Max packet length: 61 bytes
     {CC2500_04_SYNC1,     0xD3},   // Sync word high byte
     {CC2500_05_SYNC0,     0x91},   // Sync word low byte
     {CC2500_09_ADDR,      0x00},   // Device address
@@ -32,8 +32,8 @@ static const uint8_t cc2500_config[][2] = {
     {CC2500_0F_FREQ0,     0x00},   // Frequency: 2405 MHz low byte
     {CC2500_10_MDMCFG4,   0x78},   // Modem configuration: data rate exponent, channel bandwidth
     {CC2500_11_MDMCFG3,   0x93},   // Modem configuration: data rate mantissa
-    {CC2500_12_MDMCFG2,   0x00},   // 2-FSK, no Manchester, sensitivity optimization
-    {CC2500_13_MDMCFG1,   0x22},   // Channel spacing exponent
+    {CC2500_12_MDMCFG2,   0x02},   // 2-FSK, 16/16 sync word bits (TX compatible)
+    {CC2500_13_MDMCFG1,   0x20},   // 4 preamble bytes (RX compatible)
     {CC2500_14_MDMCFG0,   0xF8},   // Channel spacing mantissa
     {CC2500_15_DEVIATN,   0x44},   // Modem deviation setting
     {CC2500_18_MCSM0,     0x18},   // Main Radio Cntrl State Machine config
@@ -377,9 +377,13 @@ int cc2500_transmit(CC2500CTX* ctx, const uint8_t* data, uint8_t length)
     // Очистка TX FIFO
     cc2500_strobe(ctx, CC2500_SFTX);
 
-    // В режиме фиксированной длины (PKTCTRL0=0x00) НЕ нужно передавать байт длины!
-    // Просто записываем данные напрямую в FIFO
-    cc2500_writeRegisterBurst(ctx, CC2500_3F_TXFIFO, data, length);
+    // В режиме Variable length (PKTCTRL0=0x05) первый байт = длина
+    uint8_t tx_buffer[65];
+    tx_buffer[0] = length;  // Длина пакета (без учета самого байта длины)
+    memcpy(&tx_buffer[1], data, length);
+    
+    // Запись в FIFO: байт длины + данные
+    cc2500_writeRegisterBurst(ctx, CC2500_3F_TXFIFO, tx_buffer, length + 1);
 
     // Переход в режим передачи
     cc2500_setTxMode(ctx);
