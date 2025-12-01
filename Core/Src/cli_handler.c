@@ -14,6 +14,7 @@ static char tx_buffer[TX_BUFFER_SIZE];
 
 static CC2500CTX* p_cc2500_ctx; // Указатель на контекст CC2500
 static uint8_t stored_deviatn = 0x44; // Default deviation (0x44 ~ 47kHz)
+static uint8_t current_pa_table_val = 0xFE; // Default Power 0dBm
 
 // Прототипы локальных функций
 static void process_command(char* cmd);
@@ -149,6 +150,7 @@ static void handle_set_mod(char* mod_str) {
     uint8_t frend0_val = 0x10; // Default FREND0 for FSK/GFSK/MSK (Index 0)
     int supported = 1;
     int is_msk = 0;
+    int is_ook = 0;
 
     if (strcmp(mod_str, "2fsk") == 0) {
         mod_format = 0x00;
@@ -157,6 +159,7 @@ static void handle_set_mod(char* mod_str) {
     } else if (strcmp(mod_str, "ask") == 0 || strcmp(mod_str, "ook") == 0) {
         mod_format = 0x30;
         frend0_val = 0x11; // OOK uses PATABLE index 1 for TX '1'
+        is_ook = 1;
     } else if (strcmp(mod_str, "msk") == 0) {
         mod_format = 0x70;
         is_msk = 1;
@@ -181,6 +184,18 @@ static void handle_set_mod(char* mod_str) {
         } else {
             // Восстанавливаем сохраненное значение девиации (или дефолтное)
             cc2500_writeRegister(p_cc2500_ctx, CC2500_15_DEVIATN, stored_deviatn);
+        }
+
+        // 4. Обновляем PATABLE для OOK
+        // Для OOK нужно: Index 0 = 0x00 (Off), Index 1 = Power (On)
+        if (is_ook) {
+            uint8_t pa_values[2];
+            pa_values[0] = 0x00;                // Logic 0 = Power Off
+            pa_values[1] = current_pa_table_val; // Logic 1 = Current Power
+            cc2500_writeRegisterBurst(p_cc2500_ctx, CC2500_3E_PATABLE, pa_values, 2);
+        } else {
+            // Для FSK/GFSK/MSK используем только индекс 0
+            cc2500_writeRegister(p_cc2500_ctx, CC2500_3E_PATABLE, current_pa_table_val);
         }
         
         snprintf(tx_buffer, TX_BUFFER_SIZE, "Modulation set to %s\r\n", mod_str);
@@ -230,7 +245,19 @@ static void handle_set_power(int8_t power_dbm) {
     }
 
     if (supported) {
-        cc2500_writeRegister(p_cc2500_ctx, CC2500_3E_PATABLE, pa_table_val);
+        current_pa_table_val = pa_table_val; // Сохраняем текущую мощность
+
+        // Проверяем текущую модуляцию, чтобы правильно обновить PATABLE
+        uint8_t mdmcfg2;
+        cc2500_readRegister(p_cc2500_ctx, CC2500_12_MDMCFG2, &mdmcfg2);
+        
+        if ((mdmcfg2 & 0x70) == 0x30) { // Если сейчас OOK
+             uint8_t pa_values[2] = {0x00, current_pa_table_val};
+             cc2500_writeRegisterBurst(p_cc2500_ctx, CC2500_3E_PATABLE, pa_values, 2);
+        } else {
+             cc2500_writeRegister(p_cc2500_ctx, CC2500_3E_PATABLE, current_pa_table_val);
+        }
+
         snprintf(tx_buffer, TX_BUFFER_SIZE, "Output power set to %d dBm\r\n", power_dbm);
         cli_transmit(tx_buffer);
     } else {
