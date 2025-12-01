@@ -145,7 +145,9 @@ static void handle_set_freq(uint32_t freq_khz) {
 static void handle_set_mod(char* mod_str) {
     uint8_t mdmcfg2_val;
     uint8_t mod_format = 0;
+    uint8_t frend0_val = 0x10; // Default FREND0 for FSK/GFSK/MSK (Index 0)
     int supported = 1;
+    int is_msk = 0;
 
     if (strcmp(mod_str, "2fsk") == 0) {
         mod_format = 0x00;
@@ -153,20 +155,34 @@ static void handle_set_mod(char* mod_str) {
         mod_format = 0x10;
     } else if (strcmp(mod_str, "ask") == 0 || strcmp(mod_str, "ook") == 0) {
         mod_format = 0x30;
+        frend0_val = 0x11; // OOK uses PATABLE index 1 for TX '1'
     } else if (strcmp(mod_str, "msk") == 0) {
         mod_format = 0x70;
+        is_msk = 1;
     } else {
         supported = 0;
     }
 
     if (supported) {
+        // 1. Обновляем MDMCFG2 (Формат модуляции)
         cc2500_readRegister(p_cc2500_ctx, CC2500_12_MDMCFG2, &mdmcfg2_val);
         mdmcfg2_val &= 0x8F; // Очистить биты MOD_FORMAT [6:4]
         mdmcfg2_val |= mod_format;
         cc2500_writeRegister(p_cc2500_ctx, CC2500_12_MDMCFG2, mdmcfg2_val);
-        snprintf(tx_buffer, TX_BUFFER_SIZE, "Modulation set to %s\r\n", mod_str);
-        cli_transmit(tx_buffer);
-    } else {
+
+        // 2. Обновляем FREND0 (Выбор индекса мощности PA)
+        // Для OOK нужно переключаться между PA_POWER[0] (выкл) и PA_POWER[1] (вкл)
+        cc2500_writeRegister(p_cc2500_ctx, CC2500_22_FREND0, frend0_val);
+
+        // 3. Обновляем DEVIATN (Девиация)
+        // MSK требует DEVIATN = 0. Остальные требуют ненулевого значения (по конфигу 0x44).
+        uint8_t current_deviatn;
+        cc2500_readRegister(p_cc2500_ctx, CC2500_15_DEVIATN, &current_deviatn);
+        
+        if (is_msk) {
+            // Для MSK девиация должна быть 0
+            cc2500_writeRegister(p_cc2500_ctx, CC2500_15_DEVIATN, 0x00);
+        } else {
         cli_transmit("Unsupported modulation. Use 2fsk, gfsk, ask/ook, msk.\r\n");
     }
 }
