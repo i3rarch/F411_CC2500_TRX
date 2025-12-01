@@ -183,8 +183,9 @@ static void handle_set_mod(char* mod_str) {
             // Для MSK девиация должна быть 0
             cc2500_writeRegister(p_cc2500_ctx, CC2500_15_DEVIATN, 0x00);
         } else {
-        cli_transmit("Unsupported modulation. Use 2fsk, gfsk, ask/ook, msk.\r\n");
-    }
+            cli_transmit("Unsupported modulation. Use 2fsk, gfsk, ask/ook, msk.\r\n");
+        }
+    }   
 }
 
 static void handle_set_dev(uint32_t dev_khz) {
