@@ -1,13 +1,35 @@
-#ifndef __CLI_HANDLER_H
-#define __CLI_HANDLER_H
+/**
+ * @file    cli_handler.h
+ * @brief   Command Line Interface handler for USB CDC communication
+ * @author  i3rarch
+ * @date    2025
+ */
+
+#ifndef CLI_HANDLER_H_
+#define CLI_HANDLER_H_
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 #include "main.h"
 #include "cc2500.h"
 
-// Инициализация обработчика команд
-void cli_init(CC2500CTX* cc2500_context);
+/**
+ * @brief Initialize CLI handler module
+ * @param cc2500_context Pointer to CC2500 context structure
+ */
+void cli_init(CC2500CTX *cc2500_context);
 
-// Функция для обработки входящих данных из USB VCP
-void cli_process_input(uint8_t* buf, uint32_t len);
+/**
+ * @brief Process incoming data from USB CDC
+ * @param buf Pointer to received data buffer
+ * @param len Length of received data
+ */
+void cli_process_input(uint8_t *buf, uint32_t len);
 
-#endif /* __CLI_HANDLER_H */
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* CLI_HANDLER_H_ */

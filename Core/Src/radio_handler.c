@@ -1,219 +1,252 @@
+/**
+ * @file    radio_handler.c
+ * @brief   Radio communication handler implementation
+ * @author  i3rarch
+ * @date    2025
+ */
+
 #include "radio_handler.h"
 #include "usbd_cdc_if.h"
 #include <string.h>
 #include <stdio.h>
 #include <stdarg.h>
 
-// Приватные переменные модуля
-static CC2500CTX* p_ctx = NULL;
-static RadioMode_t current_mode = RADIO_MODE_RX;
-static RadioStats_t stats = {0};
-static volatile uint8_t rx_packet_pending = 0;
-static uint8_t debug_enabled = 1;
-static uint8_t tx_counter = 0;
+/* ============================================================================
+ * Private Defines
+ * ========================================================================= */
+#define RADIO_RX_BUFFER_SIZE    64U
+#define RADIO_USB_BUFFER_SIZE   400U
+#define RADIO_MAX_PACKET_LEN    61U
+#define RADIO_TX_INTERVAL_MS    500U
 
-// Буферы
-static uint8_t rx_buffer[64];
-static char usb_buffer[400];
+/* ============================================================================
+ * Private Variables
+ * ========================================================================= */
+static CC2500CTX *s_ctx = NULL;
+static RadioMode_t s_current_mode = RADIO_MODE_RX;
+static RadioStats_t s_stats = {0};
+static volatile uint8_t s_rx_packet_pending = 0;
+static uint8_t s_debug_enabled = 1;
+static uint8_t s_tx_counter = 0;
 
-// Приватные функции
-static void process_rx_packet(void);
-static void process_tx_cycle(void);
-static void send_debug_msg(const char* fmt, ...);
+static uint8_t s_rx_buffer[RADIO_RX_BUFFER_SIZE];
+static char s_usb_buffer[RADIO_USB_BUFFER_SIZE];
 
-// ============================================================================
-// Публичные функции
-// ============================================================================
+/* ============================================================================
+ * Private Function Prototypes
+ * ========================================================================= */
+static void radio_process_rx_packet(void);
+static void radio_process_tx_cycle(void);
+static void radio_send_debug(const char *fmt, ...);
 
-void radio_init(CC2500CTX* ctx, RadioMode_t mode)
+/* ============================================================================
+ * Public Functions
+ * ========================================================================= */
+
+void radio_init(CC2500CTX *ctx, RadioMode_t mode)
 {
-    p_ctx = ctx;
-    current_mode = mode;
+    if (ctx == NULL) {
+        return;
+    }
     
-    memset(&stats, 0, sizeof(stats));
-    rx_packet_pending = 0;
-    tx_counter = 0;
+    s_ctx = ctx;
+    s_current_mode = mode;
+    
+    memset(&s_stats, 0, sizeof(s_stats));
+    s_rx_packet_pending = 0;
+    s_tx_counter = 0;
     
     if (mode == RADIO_MODE_RX) {
-        // Включение прерываний для GDO пинов
+        /* Enable GDO pin interrupts for RX mode */
         HAL_NVIC_SetPriority(EXTI0_IRQn, 5, 0);
         HAL_NVIC_EnableIRQ(EXTI0_IRQn);
         HAL_NVIC_SetPriority(EXTI1_IRQn, 5, 0);
         HAL_NVIC_EnableIRQ(EXTI1_IRQn);
         
-        cc2500_setRxMode(p_ctx);
+        cc2500_setRxMode(s_ctx);
         
-        const char* msg = "Radio: RX Mode initialized\r\n";
-        CDC_Transmit_FS((uint8_t*)msg, strlen(msg));
+        const char *msg = "Radio: RX Mode initialized\r\n";
+        CDC_Transmit_FS((uint8_t *)msg, (uint16_t)strlen(msg));
     } else {
-        const char* msg = "Radio: TX Mode initialized\r\n";
-        CDC_Transmit_FS((uint8_t*)msg, strlen(msg));
+        const char *msg = "Radio: TX Mode initialized\r\n";
+        CDC_Transmit_FS((uint8_t *)msg, (uint16_t)strlen(msg));
     }
 }
 
 void radio_process(void)
 {
-    if (p_ctx == NULL) return;
+    if (s_ctx == NULL) {
+        return;
+    }
     
-    if (current_mode == RADIO_MODE_TX) {
-        process_tx_cycle();
+    if (s_current_mode == RADIO_MODE_TX) {
+        radio_process_tx_cycle();
     } else {
-        if (rx_packet_pending) {
-            rx_packet_pending = 0;
-            process_rx_packet();
+        if (s_rx_packet_pending != 0U) {
+            s_rx_packet_pending = 0;
+            radio_process_rx_packet();
         }
     }
 }
 
 void radio_gdo_irq_handler(uint16_t gpio_pin)
 {
-    if (current_mode == RADIO_MODE_RX) {
-        if (gpio_pin == GD00_Pin || gpio_pin == GD02_Pin) {
-            rx_packet_pending = 1;
+    if (s_current_mode == RADIO_MODE_RX) {
+        if ((gpio_pin == GD00_Pin) || (gpio_pin == GD02_Pin)) {
+            s_rx_packet_pending = 1;
         }
     }
 }
 
-RadioStats_t* radio_get_stats(void)
+RadioStats_t *radio_get_stats(void)
 {
-    return &stats;
+    return &s_stats;
 }
 
 RadioMode_t radio_get_mode(void)
 {
-    return current_mode;
+    return s_current_mode;
 }
 
 void radio_set_debug(uint8_t enable)
 {
-    debug_enabled = enable;
+    s_debug_enabled = enable;
 }
 
-// ============================================================================
-// Приватные функции
-// ============================================================================
+/* ============================================================================
+ * Private Functions
+ * ========================================================================= */
 
-static void send_debug_msg(const char* fmt, ...)
+static void radio_send_debug(const char *fmt, ...)
 {
-    if (!debug_enabled) return;
+    if (s_debug_enabled == 0U) {
+        return;
+    }
     
     va_list args;
     va_start(args, fmt);
-    int len = vsnprintf(usb_buffer, sizeof(usb_buffer), fmt, args);
+    int len = vsnprintf(s_usb_buffer, sizeof(s_usb_buffer), fmt, args);
     va_end(args);
     
     if (len > 0) {
-        CDC_Transmit_FS((uint8_t*)usb_buffer, len);
+        CDC_Transmit_FS((uint8_t *)s_usb_buffer, (uint16_t)len);
     }
 }
 
-static void process_rx_packet(void)
+static void radio_process_rx_packet(void)
 {
     uint8_t rxbytes;
     uint8_t marcstate;
     uint8_t pktstatus;
     
-    marcstate = cc2500_getState(p_ctx);
-    cc2500_readStatusRegister(p_ctx, CC2500_3B_RXBYTES, &rxbytes);
-    cc2500_readStatusRegister(p_ctx, CC2500_38_PKTSTATUS, &pktstatus);
+    marcstate = cc2500_getState(s_ctx);
+    cc2500_readStatusRegister(s_ctx, CC2500_3B_RXBYTES, &rxbytes);
+    cc2500_readStatusRegister(s_ctx, CC2500_38_PKTSTATUS, &pktstatus);
+    UNUSED(pktstatus);
     
-    uint8_t fifo_bytes = rxbytes & 0x7F;
+    uint8_t fifo_bytes = rxbytes & 0x7FU;
     
-    if (fifo_bytes < 1) {
-        send_debug_msg("DEBUG: Spurious IRQ, RXBYTES=0x%02X, STATE=0x%02X\r\n", 
-                       rxbytes, marcstate);
-        stats.rx_errors++;
-        cc2500_strobe(p_ctx, CC2500_SFRX);
-        cc2500_setRxMode(p_ctx);
+    if (fifo_bytes < 1U) {
+        radio_send_debug("DEBUG: Spurious IRQ, RXBYTES=0x%02X, STATE=0x%02X\r\n", 
+                         rxbytes, marcstate);
+        s_stats.rx_errors++;
+        cc2500_strobe(s_ctx, CC2500_SFRX);
+        cc2500_setRxMode(s_ctx);
         return;
     }
     
-    // Читаем байт длины
+    /* Read length byte */
     uint8_t pkt_length;
-    cc2500_readRegister(p_ctx, CC2500_3F_RXFIFO, &pkt_length);
+    cc2500_readRegister(s_ctx, CC2500_3F_RXFIFO, &pkt_length);
     
-    // Проверка валидности
-    if (pkt_length > 61 || fifo_bytes < (pkt_length + 2)) {
-        send_debug_msg("DEBUG: Invalid packet, LEN=%u, RXBYTES=0x%02X\r\n",
-                       pkt_length, rxbytes);
-        stats.rx_errors++;
-        cc2500_strobe(p_ctx, CC2500_SFRX);
-        cc2500_setRxMode(p_ctx);
+    /* Validate packet */
+    if ((pkt_length > RADIO_MAX_PACKET_LEN) || (fifo_bytes < (pkt_length + 2U))) {
+        radio_send_debug("DEBUG: Invalid packet, LEN=%u, RXBYTES=0x%02X\r\n",
+                         pkt_length, rxbytes);
+        s_stats.rx_errors++;
+        cc2500_strobe(s_ctx, CC2500_SFRX);
+        cc2500_setRxMode(s_ctx);
         return;
     }
     
-    // Читаем данные пакета
+    /* Read packet data */
     uint8_t rx_length = pkt_length;
-    cc2500_readRegisterBurst(p_ctx, CC2500_3F_RXFIFO, rx_buffer, rx_length);
+    cc2500_readRegisterBurst(s_ctx, CC2500_3F_RXFIFO, s_rx_buffer, rx_length);
     
-    // Читаем статусные байты (RSSI + LQI|CRC_OK)
+    /* Read status bytes (RSSI + LQI|CRC_OK) */
     uint8_t status_bytes[2];
-    cc2500_readRegisterBurst(p_ctx, CC2500_3F_RXFIFO, status_bytes, 2);
+    cc2500_readRegisterBurst(s_ctx, CC2500_3F_RXFIFO, status_bytes, 2);
     
-    // Парсинг статуса
+    /* Parse status */
     int8_t rssi_raw = (int8_t)status_bytes[0];
-    int8_t rssi_dbm = (rssi_raw / 2) - 74;
-    uint8_t lqi = status_bytes[1] & 0x7F;
-    uint8_t crc_ok = (status_bytes[1] & 0x80) ? 1 : 0;
+    int8_t rssi_dbm = (int8_t)((rssi_raw / 2) - 74);
+    uint8_t lqi = status_bytes[1] & 0x7FU;
+    uint8_t crc_ok = ((status_bytes[1] & 0x80U) != 0U) ? 1U : 0U;
     
-    // Мигаем LED
+    /* Toggle LED */
     HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
-    stats.rx_count++;
+    s_stats.rx_count++;
     
-    // Формируем вывод
+    /* Format output */
     int pos = 0;
-    pos += sprintf(usb_buffer + pos, "[%lu] RX: ", HAL_GetTick());
+    pos += snprintf(s_usb_buffer + pos, sizeof(s_usb_buffer) - (size_t)pos,
+                    "[%lu] RX: ", HAL_GetTick());
     
-    // HEX данные
-    for (int i = 0; i < rx_length && pos < 300; i++) {
-        pos += sprintf(usb_buffer + pos, "%02X ", rx_buffer[i]);
+    /* HEX data */
+    for (int i = 0; (i < rx_length) && (pos < 300); i++) {
+        pos += snprintf(s_usb_buffer + pos, sizeof(s_usb_buffer) - (size_t)pos,
+                        "%02X ", s_rx_buffer[i]);
     }
     
-    // ASCII
-    pos += sprintf(usb_buffer + pos, "| ");
-    for (int i = 0; i < rx_length && pos < 350; i++) {
-        char c = (rx_buffer[i] >= 32 && rx_buffer[i] <= 126) ? rx_buffer[i] : '.';
-        usb_buffer[pos++] = c;
+    /* ASCII representation */
+    pos += snprintf(s_usb_buffer + pos, sizeof(s_usb_buffer) - (size_t)pos, "| ");
+    for (int i = 0; (i < rx_length) && (pos < 350); i++) {
+        char c = ((s_rx_buffer[i] >= 32U) && (s_rx_buffer[i] <= 126U)) 
+                 ? (char)s_rx_buffer[i] : '.';
+        s_usb_buffer[pos++] = c;
     }
     
-    // Статус
-    pos += sprintf(usb_buffer + pos, " | RSSI:%d LQI:%u CRC:%s #%lu",
-                   rssi_dbm, lqi, crc_ok ? "OK" : "FAIL", stats.rx_count);
+    /* Status info */
+    pos += snprintf(s_usb_buffer + pos, sizeof(s_usb_buffer) - (size_t)pos,
+                    " | RSSI:%d LQI:%u CRC:%s #%lu",
+                    rssi_dbm, lqi, (crc_ok != 0U) ? "OK" : "FAIL", s_stats.rx_count);
     
-    if (debug_enabled) {
-        pos += sprintf(usb_buffer + pos, "\r\n  [DBG] LEN=%u RXBYTES=0x%02X STATE=0x%02X",
-                       pkt_length, rxbytes, marcstate);
+    if (s_debug_enabled != 0U) {
+        pos += snprintf(s_usb_buffer + pos, sizeof(s_usb_buffer) - (size_t)pos,
+                        "\r\n  [DBG] LEN=%u RXBYTES=0x%02X STATE=0x%02X",
+                        pkt_length, rxbytes, marcstate);
     }
     
-    pos += sprintf(usb_buffer + pos, "\r\n");
-    CDC_Transmit_FS((uint8_t*)usb_buffer, pos);
+    pos += snprintf(s_usb_buffer + pos, sizeof(s_usb_buffer) - (size_t)pos, "\r\n");
+    CDC_Transmit_FS((uint8_t *)s_usb_buffer, (uint16_t)pos);
     
-    // Очистка и возврат в RX
-    cc2500_strobe(p_ctx, CC2500_SFRX);
-    cc2500_setRxMode(p_ctx);
+    /* Flush and return to RX mode */
+    cc2500_strobe(s_ctx, CC2500_SFRX);
+    cc2500_setRxMode(s_ctx);
 }
 
-static void process_tx_cycle(void)
+static void radio_process_tx_cycle(void)
 {
     HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
     
-    // Формируем пакет
+    /* Build packet */
     uint8_t tx_data[8];
-    int len = sprintf((char*)tx_data, "PING%d", tx_counter++);
+    int len = snprintf((char *)tx_data, sizeof(tx_data), "PING%d", s_tx_counter++);
     
-    // Заполняем остаток нулями
+    /* Fill remainder with zeros */
     for (int i = len; i < 8; i++) {
         tx_data[i] = 0;
     }
     
-    cc2500_transmit(p_ctx, tx_data, 8);
-    stats.tx_count++;
+    cc2500_transmit(s_ctx, tx_data, 8);
+    s_stats.tx_count++;
     
-    // Периодический вывод статистики
-    if (stats.tx_count % 10 == 0) {
-        int msg_len = sprintf(usb_buffer, "TX: %lu packets sent\r\n", stats.tx_count);
-        CDC_Transmit_FS((uint8_t*)usb_buffer, msg_len);
+    /* Periodic status output */
+    if ((s_stats.tx_count % 10U) == 0U) {
+        int msg_len = snprintf(s_usb_buffer, sizeof(s_usb_buffer),
+                               "TX: %lu packets sent\r\n", s_stats.tx_count);
+        CDC_Transmit_FS((uint8_t *)s_usb_buffer, (uint16_t)msg_len);
     }
     
-    HAL_Delay(500);
+    HAL_Delay(RADIO_TX_INTERVAL_MS);
 }

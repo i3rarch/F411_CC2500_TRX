@@ -1,38 +1,75 @@
-#ifndef __RADIO_HANDLER_H
-#define __RADIO_HANDLER_H
+/**
+ * @file    radio_handler.h
+ * @brief   Radio communication handler for CC2500 TX/RX operations
+ * @author  i3rarch
+ * @date    2025
+ */
+
+#ifndef RADIO_HANDLER_H_
+#define RADIO_HANDLER_H_
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 #include "main.h"
 #include "cc2500.h"
 
-// Режимы работы радио
+/**
+ * @brief Radio operation modes
+ */
 typedef enum {
-    RADIO_MODE_RX = 0,
-    RADIO_MODE_TX = 1
+    RADIO_MODE_RX = 0,  /**< Receive mode */
+    RADIO_MODE_TX = 1   /**< Transmit mode */
 } RadioMode_t;
 
-// Статистика радио
+/**
+ * @brief Radio statistics structure
+ */
 typedef struct {
-    uint32_t tx_count;
-    uint32_t rx_count;
-    uint32_t rx_errors;
+    uint32_t tx_count;    /**< Number of transmitted packets */
+    uint32_t rx_count;    /**< Number of received packets */
+    uint32_t rx_errors;   /**< Number of receive errors */
 } RadioStats_t;
 
-// Инициализация модуля радио
-void radio_init(CC2500CTX* ctx, RadioMode_t mode);
+/**
+ * @brief Initialize radio handler module
+ * @param ctx Pointer to CC2500 context
+ * @param mode Initial operating mode (TX or RX)
+ */
+void radio_init(CC2500CTX *ctx, RadioMode_t mode);
 
-// Основной цикл обработки (вызывается из main loop)
+/**
+ * @brief Main radio processing function (call from main loop)
+ */
 void radio_process(void);
 
-// Обработчик прерывания GDO (вызывается из HAL_GPIO_EXTI_Callback)
+/**
+ * @brief GDO interrupt handler (call from HAL_GPIO_EXTI_Callback)
+ * @param gpio_pin GPIO pin that triggered the interrupt
+ */
 void radio_gdo_irq_handler(uint16_t gpio_pin);
 
-// Получение статистики
-RadioStats_t* radio_get_stats(void);
+/**
+ * @brief Get pointer to radio statistics
+ * @return Pointer to RadioStats_t structure
+ */
+RadioStats_t *radio_get_stats(void);
 
-// Получение текущего режима
+/**
+ * @brief Get current radio mode
+ * @return Current RadioMode_t value
+ */
 RadioMode_t radio_get_mode(void);
 
-// Установка флага debug
+/**
+ * @brief Enable or disable debug output
+ * @param enable 1 to enable, 0 to disable
+ */
 void radio_set_debug(uint8_t enable);
 
-#endif /* __RADIO_HANDLER_H */
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* RADIO_HANDLER_H_ */

@@ -1,22 +1,33 @@
-/*
- This project is free software: you can redistribute it and/or modify
- it under the terms of the GNU General Public License as published by
- the Free Software Foundation, either version 3 of the License, or
- (at your option) any later version.
-
- Multiprotocol is distributed in the hope that it will be useful,
- but WITHOUT ANY WARRANTY; without even the implied warranty of
- MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- GNU General Public License for more details.
-
- You should have received a copy of the GNU General Public License
- along with Multiprotocol.  If not, see <http://www.gnu.org/licenses/>.
+/**
+ * @file    iface_cc2500.h
+ * @brief   CC2500 register definitions and constants
+ * @license GNU General Public License v3.0
+ * 
+ * This project is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * Multiprotocol is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with Multiprotocol. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef _IFACE_CC2500_H_
-#define _IFACE_CC2500_H_
+#ifndef IFACE_CC2500_H_
+#define IFACE_CC2500_H_
 
-enum {
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/**
+ * @brief CC2500 Register addresses
+ */
+typedef enum {
     CC2500_00_IOCFG2           = 0x00,        // GDO2 output pin configuration
     CC2500_01_IOCFG1           = 0x01,        // GDO1 output pin configuration
     CC2500_02_IOCFG0           = 0x02,        // GDO0 output pin configuration
@@ -65,8 +76,8 @@ enum {
     CC2500_2D_TEST1            = 0x2D,        // Various test settings
     CC2500_2E_TEST0            = 0x2E,        // Various test settings
 
-// Status registers
-    CC2500_30_PARTNUM          = 0x30,        // Part number
+    /* Status registers */
+    CC2500_30_PARTNUM          = 0x30,        /* Part number */
     CC2500_31_VERSION          = 0x31,        // Current version number
     CC2500_32_FREQEST          = 0x32,        // Frequency offset estimate
     CC2500_33_LQI              = 0x33,        // Demodulator estimate for link quality
@@ -79,11 +90,11 @@ enum {
     CC2500_3A_TXBYTES          = 0x3A,        // Underflow and # of bytes in TXFIFO
     CC2500_3B_RXBYTES          = 0x3B,        // Overflow and # of bytes in RXFIFO
 
-// Multi byte memory locations
+    /* Multi byte memory locations */
     CC2500_3E_PATABLE          = 0x3E,
     CC2500_3F_TXFIFO           = 0x3F,
-    CC2500_3F_RXFIFO           = 0x3F,
-};
+    CC2500_3F_RXFIFO           = 0x3F
+} CC2500_Register_t;
 
 // Definitions for burst/single access to registers
 #define CC2500_WRITE_SINGLE     0x00
@@ -139,12 +150,8 @@ enum {
 #define CC2500_LQI_CRC_OK_BM                   0x80
 #define CC2500_LQI_EST_BM                      0x7F
 
-//void CC2500_WriteReg(u8 addr, u8 data);
-//u8 CC2500_ReadReg(u8 addr);
-//void CC2500_Reset();
-//void CC2500_Strobe(u8 cmd);
-//void CC2500_WriteData(u8 *packet, u8 length);
-//void CC2500_ReadData(u8 *dpbuffer, int len);
-//void CC2500_SetTxRxMode(enum TXRX_State);
-
+#ifdef __cplusplus
+}
 #endif
+
+#endif /* IFACE_CC2500_H_ */

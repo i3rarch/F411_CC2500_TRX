@@ -1,3 +1,10 @@
+/**
+ * @file    cli_handler.c
+ * @brief   Command Line Interface handler implementation
+ * @author  i3rarch
+ * @date    2025
+ */
+
 #include "cli_handler.h"
 #include "usbd_cdc_if.h"
 #include "radio_handler.h"
@@ -5,83 +12,151 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#define RX_BUFFER_SIZE 64
-#define TX_BUFFER_SIZE 128
+/* ============================================================================
+ * Private Defines
+ * ========================================================================= */
+#define CLI_RX_BUFFER_SIZE  64U
+#define CLI_TX_BUFFER_SIZE  128U
 
-// Локальные переменные модуля
-static char rx_buffer[RX_BUFFER_SIZE];
-static uint32_t rx_index = 0;
-static char tx_buffer[TX_BUFFER_SIZE];
+/* ============================================================================
+ * Private Types
+ * ========================================================================= */
 
-static CC2500CTX* p_cc2500_ctx; // Указатель на контекст CC2500
-static uint8_t stored_deviatn = 0x44; // Default deviation (0x44 ~ 47kHz)
-static uint8_t current_pa_table_val = 0xFE; // Default Power 0dBm
+/**
+ * @brief Baud rate configuration entry
+ */
+typedef struct {
+    uint32_t baudrate;
+    uint8_t mdmcfg4;
+    uint8_t mdmcfg3;
+} BaudRateConfig_t;
 
-// Прототипы локальных функций
-static void process_command(char* cmd);
-static void cli_transmit(const char* str);
-static void handle_set_baud(uint32_t baudrate);
-static void handle_get_status(void);
-static void handle_set_freq(uint32_t freq_khz);
-static void handle_set_mod(char* mod_str);
-static void handle_set_dev(uint32_t dev_khz);
-static void handle_set_power(int8_t power_dbm);
-static void handle_help(void);
-static void handle_dump_regs(void);
-static void handle_debug(char* arg);
+/**
+ * @brief Power level configuration entry
+ */
+typedef struct {
+    int8_t power_dbm;
+    uint8_t pa_table_val;
+} PowerConfig_t;
 
-// Инициализация
-void cli_init(CC2500CTX* cc2500_context) {
-    p_cc2500_ctx = cc2500_context;
-    rx_index = 0;
+/* ============================================================================
+ * Private Variables
+ * ========================================================================= */
+static char s_rx_buffer[CLI_RX_BUFFER_SIZE];
+static uint32_t s_rx_index = 0;
+static char s_tx_buffer[CLI_TX_BUFFER_SIZE];
+
+static CC2500CTX *s_cc2500_ctx = NULL;
+static uint8_t s_stored_deviatn = 0x44;     /* Default deviation ~47kHz */
+static uint8_t s_current_pa_table_val = 0xFE; /* Default Power 0dBm */
+
+/* Supported baud rates lookup table */
+static const BaudRateConfig_t s_baud_rates[] = {
+    {1200,   0xF5, 0x83},
+    {2400,   0xF6, 0x83},
+    {4800,   0xF7, 0x83},
+    {9600,   0xE7, 0x83},
+    {19200,  0xD7, 0x83},
+    {38400,  0xDA, 0x83},
+    {57600,  0xB9, 0x83},
+    {125000, 0x2D, 0x55},
+    {250000, 0x2D, 0x3B},
+    {500000, 0x3E, 0x93}
+};
+
+/* Supported power levels lookup table */
+static const PowerConfig_t s_power_levels[] = {
+    {1,   0xFF},
+    {0,   0xFE},
+    {-2,  0xBB},
+    {-4,  0xA9},
+    {-6,  0x7F},
+    {-8,  0x6E},
+    {-10, 0x97},
+    {-16, 0x55},
+    {-20, 0x46},
+    {-30, 0x50}
+};
+
+/* ============================================================================
+ * Private Function Prototypes
+ * ========================================================================= */
+static void cli_process_command(const char *cmd);
+static void cli_transmit(const char *str);
+static void cli_handle_set_baud(uint32_t baudrate);
+static void cli_handle_get_status(void);
+static void cli_handle_set_freq(uint32_t freq_khz);
+static void cli_handle_set_mod(const char *mod_str);
+static void cli_handle_set_dev(uint32_t dev_khz);
+static void cli_handle_set_power(int8_t power_dbm);
+static void cli_handle_help(void);
+static void cli_handle_dump_regs(void);
+static void cli_handle_debug(const char *arg);
+
+/* ============================================================================
+ * Public Functions
+ * ========================================================================= */
+
+void cli_init(CC2500CTX *cc2500_context)
+{
+    s_cc2500_ctx = cc2500_context;
+    s_rx_index = 0;
+    memset(s_rx_buffer, 0, sizeof(s_rx_buffer));
 }
 
-// Обработка входящих данных
-void cli_process_input(uint8_t* buf, uint32_t len) {
+void cli_process_input(uint8_t *buf, uint32_t len)
+{
     for (uint32_t i = 0; i < len; i++) {
-        if (buf[i] == '\r' || buf[i] == '\n') {
-            if (rx_index > 0) {
-                rx_buffer[rx_index] = '\0';
-                process_command(rx_buffer);
-                rx_index = 0;
+        char ch = (char)buf[i];
+        
+        if (ch == '\r' || ch == '\n') {
+            if (s_rx_index > 0) {
+                s_rx_buffer[s_rx_index] = '\0';
+                cli_process_command(s_rx_buffer);
+                s_rx_index = 0;
             }
-        } else {
-            if (rx_index < RX_BUFFER_SIZE - 1) {
-                rx_buffer[rx_index++] = buf[i];
-            }
+        } else if (s_rx_index < (CLI_RX_BUFFER_SIZE - 1)) {
+            s_rx_buffer[s_rx_index++] = ch;
         }
+        /* Characters beyond buffer size are silently dropped */
     }
 }
 
-// Отправка ответа через USB
-static void cli_transmit(const char* str) {
-    CDC_Transmit_FS((uint8_t*)str, strlen(str));
+/* ============================================================================
+ * Private Functions
+ * ========================================================================= */
+
+static void cli_transmit(const char *str)
+{
+    if (str != NULL) {
+        CDC_Transmit_FS((uint8_t *)str, (uint16_t)strlen(str));
+    }
 }
 
-// Парсинг и вызов обработчиков команд
-static void process_command(char* cmd) {
+static void cli_process_command(const char *cmd)
+{
     uint32_t value = 0;
     int32_t s_value = 0;
     char str_value[16] = {0};
 
     if (sscanf(cmd, "set_baud %lu", &value) == 1) {
-        handle_set_baud(value);
+        cli_handle_set_baud(value);
     } else if (sscanf(cmd, "set_freq %lu", &value) == 1) {
-        handle_set_freq(value);
+        cli_handle_set_freq(value);
     } else if (sscanf(cmd, "set_mod %15s", str_value) == 1) {
-        handle_set_mod(str_value);
+        cli_handle_set_mod(str_value);
     } else if (sscanf(cmd, "set_dev %lu", &value) == 1) {
-        handle_set_dev(value);
+        cli_handle_set_dev(value);
     } else if (sscanf(cmd, "set_power %ld", &s_value) == 1) {
-        handle_set_power(s_value);
+        cli_handle_set_power((int8_t)s_value);
     } else if (strcmp(cmd, "get_status") == 0) {
-        handle_get_status();
+        cli_handle_get_status();
     } else if (strcmp(cmd, "help") == 0) {
-        handle_help();
+        cli_handle_help();
     } else if (strcmp(cmd, "dump_regs") == 0) {
-        handle_dump_regs();
+        cli_handle_dump_regs();
     } else if (sscanf(cmd, "debug %15s", str_value) == 1) {
-        handle_debug(str_value);
+        cli_handle_debug(str_value);
     } else if (strcmp(cmd, "reboot") == 0) {
         cli_transmit("Rebooting system...\r\n");
         HAL_Delay(100);
@@ -91,219 +166,221 @@ static void process_command(char* cmd) {
     }
 }
 
-// --- Обработчики команд ---
+/* ============================================================================
+ * Command Handlers
+ * ========================================================================= */
 
-static void handle_set_baud(uint32_t baudrate) {
-    uint8_t mdmcfg4, mdmcfg3;
-    int supported = 1;
-
-    // Список скоростей
-    switch (baudrate) {
-        case 1200:   mdmcfg4 = 0xF5; mdmcfg3 = 0x83; break;
-        case 2400:   mdmcfg4 = 0xF6; mdmcfg3 = 0x83; break;
-        case 4800:   mdmcfg4 = 0xF7; mdmcfg3 = 0x83; break;
-        case 9600:   mdmcfg4 = 0xE7; mdmcfg3 = 0x83; break;
-        case 19200:  mdmcfg4 = 0xD7; mdmcfg3 = 0x83; break;
-        case 38400:  mdmcfg4 = 0xDA; mdmcfg3 = 0x83; break;
-        case 57600:  mdmcfg4 = 0xB9; mdmcfg3 = 0x83; break;
-        case 125000: mdmcfg4 = 0x2D; mdmcfg3 = 0x55; break;
-        case 250000: mdmcfg4 = 0x2D; mdmcfg3 = 0x3B; break;
-        case 500000: mdmcfg4 = 0x3E; mdmcfg3 = 0x93; break;
-        default:
-            supported = 0;
+static void cli_handle_set_baud(uint32_t baudrate)
+{
+    const BaudRateConfig_t *cfg = NULL;
+    
+    /* Search for matching baud rate in lookup table */
+    for (size_t i = 0; i < ARRAY_SIZE(s_baud_rates); i++) {
+        if (s_baud_rates[i].baudrate == baudrate) {
+            cfg = &s_baud_rates[i];
             break;
+        }
     }
-
-    if (supported) {
-        cc2500_writeRegister(p_cc2500_ctx, CC2500_10_MDMCFG4, mdmcfg4);
-        cc2500_writeRegister(p_cc2500_ctx, CC2500_11_MDMCFG3, mdmcfg3);
-        snprintf(tx_buffer, TX_BUFFER_SIZE, "Baud rate set to %lu\r\n", baudrate);
-        cli_transmit(tx_buffer);
+    
+    if (cfg != NULL) {
+        cc2500_writeRegister(s_cc2500_ctx, CC2500_10_MDMCFG4, cfg->mdmcfg4);
+        cc2500_writeRegister(s_cc2500_ctx, CC2500_11_MDMCFG3, cfg->mdmcfg3);
+        snprintf(s_tx_buffer, CLI_TX_BUFFER_SIZE, "Baud rate set to %lu\r\n", baudrate);
+        cli_transmit(s_tx_buffer);
     } else {
         cli_transmit("Baud rate not supported. Use one of the predefined values.\r\n");
     }
 }
 
-static void handle_set_freq(uint32_t freq_khz) {
-    if (freq_khz < 2400000 || freq_khz > 2483500) {
+static void cli_handle_set_freq(uint32_t freq_khz)
+{
+    /* CC2500 frequency range: 2400-2483.5 MHz */
+    if (freq_khz < 2400000UL || freq_khz > 2483500UL) {
         cli_transmit("Frequency out of range (2400000 - 2483500 kHz).\r\n");
         return;
     }
 
-    uint64_t f_vco = (uint64_t)freq_khz * 1000;
-    uint32_t freq_reg = (f_vco * 65536) / 26000000; // FXTAL = 26 MHz
+    /* Calculate frequency register value
+     * FREQ = (f_carrier * 2^16) / f_xosc
+     * f_xosc = 26 MHz for CC2500 */
+    uint64_t f_vco = (uint64_t)freq_khz * 1000ULL;
+    uint32_t freq_reg = (uint32_t)((f_vco * 65536ULL) / 26000000ULL);
 
-    uint8_t freq2 = (freq_reg >> 16) & 0xFF;
-    uint8_t freq1 = (freq_reg >> 8) & 0xFF;
-    uint8_t freq0 = freq_reg & 0xFF;
+    uint8_t freq2 = (uint8_t)((freq_reg >> 16) & 0xFFU);
+    uint8_t freq1 = (uint8_t)((freq_reg >> 8) & 0xFFU);
+    uint8_t freq0 = (uint8_t)(freq_reg & 0xFFU);
 
-    cc2500_writeRegister(p_cc2500_ctx, CC2500_0D_FREQ2, freq2);
-    cc2500_writeRegister(p_cc2500_ctx, CC2500_0E_FREQ1, freq1);
-    cc2500_writeRegister(p_cc2500_ctx, CC2500_0F_FREQ0, freq0);
+    cc2500_writeRegister(s_cc2500_ctx, CC2500_0D_FREQ2, freq2);
+    cc2500_writeRegister(s_cc2500_ctx, CC2500_0E_FREQ1, freq1);
+    cc2500_writeRegister(s_cc2500_ctx, CC2500_0F_FREQ0, freq0);
 
-    snprintf(tx_buffer, TX_BUFFER_SIZE, "Frequency set to %lu kHz\r\n", freq_khz);
-    cli_transmit(tx_buffer);
+    snprintf(s_tx_buffer, CLI_TX_BUFFER_SIZE, "Frequency set to %lu kHz\r\n", freq_khz);
+    cli_transmit(s_tx_buffer);
 }
 
-static void handle_set_mod(char* mod_str) {
+static void cli_handle_set_mod(const char *mod_str)
+{
     uint8_t mdmcfg2_val;
     uint8_t mod_format = 0;
-    uint8_t frend0_val = 0x10; // Default FREND0 for FSK/GFSK/MSK (Index 0)
-    int supported = 1;
-    int is_msk = 0;
-    int is_ook = 0;
+    uint8_t frend0_val = 0x10;  /* Default FREND0 for FSK/GFSK/MSK */
+    bool is_msk = false;
+    bool is_ook = false;
+    bool supported = true;
 
     if (strcmp(mod_str, "2fsk") == 0) {
         mod_format = 0x00;
     } else if (strcmp(mod_str, "gfsk") == 0) {
         mod_format = 0x10;
-    } else if (strcmp(mod_str, "ask") == 0 || strcmp(mod_str, "ook") == 0) {
+    } else if ((strcmp(mod_str, "ask") == 0) || (strcmp(mod_str, "ook") == 0)) {
         mod_format = 0x30;
-        frend0_val = 0x11; // OOK uses PATABLE index 1 for TX '1'
-        is_ook = 1;
+        frend0_val = 0x11;  /* OOK uses PATABLE index 1 for TX '1' */
+        is_ook = true;
     } else if (strcmp(mod_str, "msk") == 0) {
         mod_format = 0x70;
-        is_msk = 1;
+        is_msk = true;
     } else {
-        supported = 0;
+        supported = false;
     }
 
-    if (supported) {
-        // 1. Обновляем MDMCFG2 (Формат модуляции)
-        cc2500_readRegister(p_cc2500_ctx, CC2500_12_MDMCFG2, &mdmcfg2_val);
-        mdmcfg2_val &= 0x8F; // Очистить биты MOD_FORMAT [6:4]
-        mdmcfg2_val |= mod_format;
-        cc2500_writeRegister(p_cc2500_ctx, CC2500_12_MDMCFG2, mdmcfg2_val);
-
-        // 2. Обновляем FREND0 (Выбор индекса мощности PA)
-        cc2500_writeRegister(p_cc2500_ctx, CC2500_22_FREND0, frend0_val);
-
-        // 3. Обновляем DEVIATN (Девиация)
-        if (is_msk) {
-            // Для MSK девиация должна быть 0
-            cc2500_writeRegister(p_cc2500_ctx, CC2500_15_DEVIATN, 0x00);
-        } else {
-            // Восстанавливаем сохраненное значение девиации (или дефолтное)
-            cc2500_writeRegister(p_cc2500_ctx, CC2500_15_DEVIATN, stored_deviatn);
-        }
-
-        // 4. Обновляем PATABLE для OOK
-        // Для OOK нужно: Index 0 = 0x00 (Off), Index 1 = Power (On)
-        if (is_ook) {
-            uint8_t pa_values[2];
-            pa_values[0] = 0x00;                // Logic 0 = Power Off
-            pa_values[1] = current_pa_table_val; // Logic 1 = Current Power
-            cc2500_writeRegisterBurst(p_cc2500_ctx, CC2500_3E_PATABLE, pa_values, 2);
-        } else {
-            // Для FSK/GFSK/MSK используем только индекс 0
-            cc2500_writeRegister(p_cc2500_ctx, CC2500_3E_PATABLE, current_pa_table_val);
-        }
-        
-        snprintf(tx_buffer, TX_BUFFER_SIZE, "Modulation set to %s\r\n", mod_str);
-        cli_transmit(tx_buffer);
-    } else {
+    if (!supported) {
         cli_transmit("Unsupported modulation. Use 2fsk, gfsk, ask/ook, msk.\r\n");
-    }  
+        return;
+    }
+
+    /* 1. Update MDMCFG2 (Modulation format) */
+    cc2500_readRegister(s_cc2500_ctx, CC2500_12_MDMCFG2, &mdmcfg2_val);
+    mdmcfg2_val &= 0x8FU;  /* Clear MOD_FORMAT bits [6:4] */
+    mdmcfg2_val |= mod_format;
+    cc2500_writeRegister(s_cc2500_ctx, CC2500_12_MDMCFG2, mdmcfg2_val);
+
+    /* 2. Update FREND0 (PA power index selection) */
+    cc2500_writeRegister(s_cc2500_ctx, CC2500_22_FREND0, frend0_val);
+
+    /* 3. Update DEVIATN (Deviation) */
+    if (is_msk) {
+        /* For MSK, deviation must be 0 */
+        cc2500_writeRegister(s_cc2500_ctx, CC2500_15_DEVIATN, 0x00);
+    } else {
+        /* Restore saved deviation value */
+        cc2500_writeRegister(s_cc2500_ctx, CC2500_15_DEVIATN, s_stored_deviatn);
+    }
+
+    /* 4. Update PATABLE for OOK modulation */
+    if (is_ook) {
+        /* OOK: Index 0 = 0x00 (Off), Index 1 = Power (On) */
+        uint8_t pa_values[2] = {0x00, s_current_pa_table_val};
+        cc2500_writeRegisterBurst(s_cc2500_ctx, CC2500_3E_PATABLE, pa_values, 2);
+    } else {
+        /* FSK/GFSK/MSK use only index 0 */
+        cc2500_writeRegister(s_cc2500_ctx, CC2500_3E_PATABLE, s_current_pa_table_val);
+    }
+    
+    snprintf(s_tx_buffer, CLI_TX_BUFFER_SIZE, "Modulation set to %s\r\n", mod_str);
+    cli_transmit(s_tx_buffer);
 }
 
-static void handle_set_dev(uint32_t dev_khz) {
-    // Формула: Deviation = (FXTAL / 2^17) * (8 + DEVIATN_M) * 2^DEVIATN_E
-    // FXTAL = 26 MHz. Для простоты используем предрассчитанные значения.
-    // Это очень грубый расчет, для точных значений см. даташит или SmartRF Studio.
-    if (dev_khz > 500) { // Ограничение для предотвращения некорректных значений
+static void cli_handle_set_dev(uint32_t dev_khz)
+{
+    /* Maximum deviation check */
+    if (dev_khz > 500UL) {
         cli_transmit("Deviation is too high (max 500 kHz).\r\n");
         return;
     }
-    uint32_t reg_val = (dev_khz * 1000 * 131072) / 26000000;
-    uint8_t deviatn = reg_val > 255 ? 255 : (uint8_t)reg_val;
+    
+    /* Calculate DEVIATN register value
+     * Deviation = (f_xosc / 2^17) * (8 + DEVIATN_M) * 2^DEVIATN_E
+     * This is a simplified calculation */
+    uint32_t reg_val = (dev_khz * 1000UL * 131072UL) / 26000000UL;
+    uint8_t deviatn = (reg_val > 255U) ? 255U : (uint8_t)reg_val;
 
-    // Сохраняем значение для восстановления после MSK
-    stored_deviatn = deviatn;
+    /* Store value for restoration after MSK mode */
+    s_stored_deviatn = deviatn;
 
-    cc2500_writeRegister(p_cc2500_ctx, CC2500_15_DEVIATN, deviatn);
-    snprintf(tx_buffer, TX_BUFFER_SIZE, "Deviation set to approx %lu kHz (reg: 0x%02X)\r\n", dev_khz, deviatn);
-    cli_transmit(tx_buffer);
+    cc2500_writeRegister(s_cc2500_ctx, CC2500_15_DEVIATN, deviatn);
+    snprintf(s_tx_buffer, CLI_TX_BUFFER_SIZE, 
+             "Deviation set to approx %lu kHz (reg: 0x%02X)\r\n", dev_khz, deviatn);
+    cli_transmit(s_tx_buffer);
 }
 
-static void handle_set_power(int8_t power_dbm) {
-    uint8_t pa_table_val;
-    int supported = 1;
-
-    switch (power_dbm) {
-        case 1: pa_table_val = 0xFF; break;
-        case 0: pa_table_val = 0xFE; break;
-        case -2: pa_table_val = 0xBB; break;
-        case -4: pa_table_val = 0xA9; break;
-        case -6: pa_table_val = 0x7F; break;
-        case -8: pa_table_val = 0x6E; break;
-        case -10: pa_table_val = 0x97; break;
-        case -16: pa_table_val = 0x55; break;
-        case -20: pa_table_val = 0x46; break;
-        case -30: pa_table_val = 0x50; break;
-        default:
-            supported = 0;
+static void cli_handle_set_power(int8_t power_dbm)
+{
+    const PowerConfig_t *cfg = NULL;
+    
+    /* Search for matching power level in lookup table */
+    for (size_t i = 0; i < ARRAY_SIZE(s_power_levels); i++) {
+        if (s_power_levels[i].power_dbm == power_dbm) {
+            cfg = &s_power_levels[i];
             break;
-    }
-
-    if (supported) {
-        current_pa_table_val = pa_table_val; // Сохраняем текущую мощность
-
-        // Проверяем текущую модуляцию, чтобы правильно обновить PATABLE
-        uint8_t mdmcfg2;
-        cc2500_readRegister(p_cc2500_ctx, CC2500_12_MDMCFG2, &mdmcfg2);
-        
-        if ((mdmcfg2 & 0x70) == 0x30) { // Если сейчас OOK
-             uint8_t pa_values[2] = {0x00, current_pa_table_val};
-             cc2500_writeRegisterBurst(p_cc2500_ctx, CC2500_3E_PATABLE, pa_values, 2);
-        } else {
-             cc2500_writeRegister(p_cc2500_ctx, CC2500_3E_PATABLE, current_pa_table_val);
         }
-
-        snprintf(tx_buffer, TX_BUFFER_SIZE, "Output power set to %d dBm\r\n", power_dbm);
-        cli_transmit(tx_buffer);
-    } else {
-        cli_transmit("Unsupported power level. See datasheet for PATABLE values.\r\n");
     }
+    
+    if (cfg == NULL) {
+        cli_transmit("Unsupported power level. See datasheet for PATABLE values.\r\n");
+        return;
+    }
+
+    s_current_pa_table_val = cfg->pa_table_val;
+
+    /* Check current modulation to update PATABLE correctly */
+    uint8_t mdmcfg2;
+    cc2500_readRegister(s_cc2500_ctx, CC2500_12_MDMCFG2, &mdmcfg2);
+    
+    if ((mdmcfg2 & 0x70U) == 0x30U) {
+        /* OOK modulation active */
+        uint8_t pa_values[2] = {0x00, s_current_pa_table_val};
+        cc2500_writeRegisterBurst(s_cc2500_ctx, CC2500_3E_PATABLE, pa_values, 2);
+    } else {
+        cc2500_writeRegister(s_cc2500_ctx, CC2500_3E_PATABLE, s_current_pa_table_val);
+    }
+
+    snprintf(s_tx_buffer, CLI_TX_BUFFER_SIZE, "Output power set to %d dBm\r\n", power_dbm);
+    cli_transmit(s_tx_buffer);
 }
 
-static void handle_get_status(void) {
+static void cli_handle_get_status(void)
+{
     uint8_t partnum, version, marcstate;
-    cc2500_readStatusRegister(p_cc2500_ctx, CC2500_30_PARTNUM, &partnum);
-    cc2500_readStatusRegister(p_cc2500_ctx, CC2500_31_VERSION, &version);
-    cc2500_readStatusRegister(p_cc2500_ctx, CC2500_35_MARCSTATE, &marcstate);
+    
+    cc2500_readStatusRegister(s_cc2500_ctx, CC2500_30_PARTNUM, &partnum);
+    cc2500_readStatusRegister(s_cc2500_ctx, CC2500_31_VERSION, &version);
+    cc2500_readStatusRegister(s_cc2500_ctx, CC2500_35_MARCSTATE, &marcstate);
 
-    snprintf(tx_buffer, TX_BUFFER_SIZE,
+    snprintf(s_tx_buffer, CLI_TX_BUFFER_SIZE,
              "CC2500 Status:\r\n"
              "  Part Number: 0x%02X\r\n"
              "  Version:     0x%02X\r\n"
              "  MARC State:  0x%02X\r\n",
-             partnum, version, marcstate & 0x1F);
-    cli_transmit(tx_buffer);
+             partnum, version, marcstate & 0x1FU);
+    cli_transmit(s_tx_buffer);
 }
 
-static void handle_help(void) {
-    const char* help_msg =
+static void cli_handle_help(void)
+{
+    static const char help_msg[] =
         "Available commands:\r\n"
         "  help                  - Show this message\r\n"
         "  reboot                - Reboot the device\r\n"
         "  get_status            - Get CC2500 status registers\r\n"
         "  dump_regs             - Dump all CC2500 registers\r\n"
         "  debug <on|off>        - Enable/disable debug output\r\n"
-        "  set_baud <rate>       - Set baud rate (1200, 2400, 4800, 9600, 19200, \r\n"
+        "  set_baud <rate>       - Set baud rate (1200, 2400, 4800, 9600, 19200,\r\n"
         "                                   38400, 57600, 125000, 250000, 500000)\r\n"
         "  set_freq <kHz>        - Set frequency in kHz (2'400'000-2'483'500)\r\n"
         "  set_mod <type>        - Set modulation (2FSK, GFSK, OOK/ASK, MSK)\r\n"
         "  set_dev <kHz>         - Set frequency deviation in kHz (up to 500)\r\n"
         "  set_power <dBm>       - Set output power (1, 0, -2, -4, -6, -8, -10, -16, -20, -30)\r\n";
+    
     cli_transmit(help_msg);
 }
 
-static void handle_dump_regs(void) {
-    cc2500_dumpRegisters(p_cc2500_ctx);
+static void cli_handle_dump_regs(void)
+{
+    cc2500_dumpRegisters(s_cc2500_ctx);
     cli_transmit("Registers dumped to g_cc2500_dump - check with debugger\r\n");
 }
 
-static void handle_debug(char* arg) {
+static void cli_handle_debug(const char *arg)
+{
     if (strcmp(arg, "on") == 0) {
         radio_set_debug(1);
         cli_transmit("Debug mode enabled\r\n");
