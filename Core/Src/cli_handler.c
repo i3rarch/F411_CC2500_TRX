@@ -13,6 +13,7 @@ static uint32_t rx_index = 0;
 static char tx_buffer[TX_BUFFER_SIZE];
 
 static CC2500CTX* p_cc2500_ctx; // Указатель на контекст CC2500
+static uint8_t stored_deviatn = 0x44; // Default deviation (0x44 ~ 47kHz)
 
 // Прототипы локальных функций
 static void process_command(char* cmd);
@@ -171,21 +172,22 @@ static void handle_set_mod(char* mod_str) {
         cc2500_writeRegister(p_cc2500_ctx, CC2500_12_MDMCFG2, mdmcfg2_val);
 
         // 2. Обновляем FREND0 (Выбор индекса мощности PA)
-        // Для OOK нужно переключаться между PA_POWER[0] (выкл) и PA_POWER[1] (вкл)
         cc2500_writeRegister(p_cc2500_ctx, CC2500_22_FREND0, frend0_val);
 
         // 3. Обновляем DEVIATN (Девиация)
-        // MSK требует DEVIATN = 0. Остальные требуют ненулевого значения (по конфигу 0x44).
-        uint8_t current_deviatn;
-        cc2500_readRegister(p_cc2500_ctx, CC2500_15_DEVIATN, &current_deviatn);
-        
         if (is_msk) {
             // Для MSK девиация должна быть 0
             cc2500_writeRegister(p_cc2500_ctx, CC2500_15_DEVIATN, 0x00);
         } else {
-            cli_transmit("Unsupported modulation. Use 2fsk, gfsk, ask/ook, msk.\r\n");
+            // Восстанавливаем сохраненное значение девиации (или дефолтное)
+            cc2500_writeRegister(p_cc2500_ctx, CC2500_15_DEVIATN, stored_deviatn);
         }
-    }   
+        
+        snprintf(tx_buffer, TX_BUFFER_SIZE, "Modulation set to %s\r\n", mod_str);
+        cli_transmit(tx_buffer);
+    } else {
+        cli_transmit("Unsupported modulation. Use 2fsk, gfsk, ask/ook, msk.\r\n");
+    }  
 }
 
 static void handle_set_dev(uint32_t dev_khz) {
@@ -198,6 +200,9 @@ static void handle_set_dev(uint32_t dev_khz) {
     }
     uint32_t reg_val = (dev_khz * 1000 * 131072) / 26000000;
     uint8_t deviatn = reg_val > 255 ? 255 : (uint8_t)reg_val;
+
+    // Сохраняем значение для восстановления после MSK
+    stored_deviatn = deviatn;
 
     cc2500_writeRegister(p_cc2500_ctx, CC2500_15_DEVIATN, deviatn);
     snprintf(tx_buffer, TX_BUFFER_SIZE, "Deviation set to approx %lu kHz (reg: 0x%02X)\r\n", dev_khz, deviatn);
