@@ -25,9 +25,8 @@
 #include "cc2500.h"
 #include "usbd_cdc_if.h"
 #include "cli_handler.h"
+#include "radio_handler.h"
 #include <string.h>
-#include <stdio.h>
-#include <stdlib.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -52,23 +51,6 @@ DMA_HandleTypeDef hdma_spi1_tx;
 
 /* USER CODE BEGIN PV */
 CC2500CTX cc2500_ctx;
-
-// Глобальный флаг отладки
-volatile uint8_t debug_mode = 1;
-
-// Режим работы (определяется автоматически)
-volatile uint8_t is_tx_mode = 0;
-
-// Переменные для режима приема
-volatile uint8_t rx_packet_received = 0;
-uint8_t rx_buffer[64];
-uint8_t rx_length = 0;
-uint32_t rx_packet_count = 0;
-uint32_t rx_error_count = 0;
-
-// Переменные для режима передачи
-uint32_t tx_packet_count = 0;
-
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -82,132 +64,20 @@ static void MX_SPI1_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-// обработчик из cli_handler
+
+// USB CDC callback
 void CDC_On_Receive_FS(uint8_t* Buf, uint32_t Len)
 {
     cli_process_input(Buf, Len);
 }
 
-// Обработчик прерываний GDO (для режима RX)
-void cc2500_GDO_IRQHandler(uint16_t GPIO_Pin)
+// GPIO EXTI callback (вызывается HAL при прерывании)
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
-    if (!is_tx_mode) {  // Только в режиме RX
-        if (GPIO_Pin == GD00_Pin || GPIO_Pin == GD02_Pin) {
-            rx_packet_received = 1;
-        }
-    }
+    radio_gdo_irq_handler(GPIO_Pin);
 }
 
-// Функция обработки принятого пакета
-void process_rx_packet(void)
-{
-    uint8_t rxbytes;
-    uint8_t marcstate;
-    uint8_t pktstatus;
-
-    // Проверка состояния чипа
-    marcstate = cc2500_getState(&cc2500_ctx);
-
-    // Проверка наличия данных в FIFO
-    cc2500_readStatusRegister(&cc2500_ctx, CC2500_3B_RXBYTES, &rxbytes);
-    cc2500_readStatusRegister(&cc2500_ctx, CC2500_38_PKTSTATUS, &pktstatus);
-
-    uint8_t fifo_bytes = rxbytes & 0x7F;
-    
-    if (fifo_bytes >= 1) {
-        // Читаем первый байт - длина пакета
-        uint8_t pkt_length;
-        cc2500_readRegister(&cc2500_ctx, CC2500_3F_RXFIFO, &pkt_length);
-        
-        // Проверка корректности длины (макс 61 байт + 2 байта статуса)
-        if (pkt_length <= 61 && (fifo_bytes >= pkt_length + 2)) {
-            // Читаем данные пакета
-            rx_length = pkt_length;
-            cc2500_readRegisterBurst(&cc2500_ctx, CC2500_3F_RXFIFO, rx_buffer, rx_length);
-            
-            // Читаем 2 байта статуса (RSSI и LQI|CRC_OK)
-            uint8_t status_bytes[2];
-            cc2500_readRegisterBurst(&cc2500_ctx, CC2500_3F_RXFIFO, status_bytes, 2);
-            
-            // Парсинг статуса
-            int8_t rssi_raw = (int8_t)status_bytes[0];
-            int8_t rssi_dbm = (rssi_raw / 2) - 74;
-            uint8_t lqi = status_bytes[1] & 0x7F;
-            uint8_t crc_ok = (status_bytes[1] & 0x80) ? 1 : 0;
-
-            // Переключение LED при получении пакета
-            HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
-
-            // Увеличение счетчика пакетов
-            rx_packet_count++;
-
-            // Форматирование и отправка через USB CDC
-            char usb_buffer[400];
-            int pos = 0;
-
-            // Временная метка
-            pos += sprintf(usb_buffer + pos, "[%lu] RX: ", HAL_GetTick());
-
-            // Данные в HEX
-            for (int i = 0; i < rx_length; i++) {
-                pos += sprintf(usb_buffer + pos, "%02X ", rx_buffer[i]);
-            }
-
-            // ASCII (если печатные символы)
-            pos += sprintf(usb_buffer + pos, "| ASCII: ");
-            for (int i = 0; i < rx_length; i++) {
-                if (rx_buffer[i] >= 32 && rx_buffer[i] <= 126) {
-                    usb_buffer[pos++] = rx_buffer[i];
-                } else {
-                    usb_buffer[pos++] = '.';
-                }
-            }
-
-            // RSSI, LQI, CRC и статистика
-            pos += sprintf(usb_buffer + pos, " | RSSI: %d dBm, LQI: %u, CRC: %s, PKT: %lu",
-                          rssi_dbm, lqi, crc_ok ? "OK" : "FAIL", rx_packet_count);
-
-            // Отладочная информация
-            if (debug_mode) {
-                pos += sprintf(usb_buffer + pos, "\r\n  DEBUG: LEN=%u, RXBYTES=0x%02X, MARCSTATE=0x%02X",
-                              pkt_length, rxbytes, marcstate);
-            }
-
-            pos += sprintf(usb_buffer + pos, "\r\n");
-
-            // Отправка через USB CDC
-            CDC_Transmit_FS((uint8_t*)usb_buffer, pos);
-
-            // Очистка RX FIFO
-            cc2500_strobe(&cc2500_ctx, CC2500_SFRX);
-
-            // Возврат в режим приема
-            cc2500_setRxMode(&cc2500_ctx);
-        } else {
-            // Некорректная длина или недостаточно данных
-            if (debug_mode) {
-                char debug_msg[100];
-                sprintf(debug_msg, "DEBUG: Invalid packet, LEN=%u, RXBYTES=0x%02X\r\n",
-                        pkt_length, rxbytes);
-                CDC_Transmit_FS((uint8_t*)debug_msg, strlen(debug_msg));
-            }
-            rx_error_count++;
-            cc2500_strobe(&cc2500_ctx, CC2500_SFRX);
-            cc2500_setRxMode(&cc2500_ctx);
-        }
-    } else {
-        // Нет данных в FIFO
-        if (debug_mode) {
-            char debug_msg[100];
-            sprintf(debug_msg, "DEBUG: Spurious interrupt, RXBYTES=0x%02X, MARCSTATE=0x%02X\r\n",
-                    rxbytes, marcstate);
-            CDC_Transmit_FS((uint8_t*)debug_msg, strlen(debug_msg));
-        }
-        rx_error_count++;
-        cc2500_strobe(&cc2500_ctx, CC2500_SFRX);
-        cc2500_setRxMode(&cc2500_ctx);
-    }
-}
+/* USER CODE END 0 */
 
 /**
   * @brief  The application entry point.
@@ -215,14 +85,11 @@ void process_rx_packet(void)
   */
 int main(void)
 {
-
   /* USER CODE BEGIN 1 */
 
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
-
-  /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
   HAL_Init();
 
   /* USER CODE BEGIN Init */
@@ -241,97 +108,53 @@ int main(void)
   MX_DMA_Init();
   MX_SPI1_Init();
   MX_USB_DEVICE_Init();
+  
   /* USER CODE BEGIN 2 */
   
   // Определение режима работы через пин TRX_SEL (PA0)
-  // HIGH = TX mode, LOW = RX mode
-  is_tx_mode = (HAL_GPIO_ReadPin(TRX_SEL_GPIO_Port, TRX_SEL_Pin) == GPIO_PIN_SET) ? 1 : 0;
+  RadioMode_t radio_mode = (HAL_GPIO_ReadPin(TRX_SEL_GPIO_Port, TRX_SEL_Pin) == GPIO_PIN_SET) 
+                           ? RADIO_MODE_TX : RADIO_MODE_RX;
   
-  // Инициализация обработчика команд
+  // Инициализация CLI
   cli_init(&cc2500_ctx);
 
   // Инициализация CC2500
   cc2500_init_full(&cc2500_ctx,
-                  CSN_GPIO_Port, CSN_Pin,
-                  GD00_GPIO_Port, GD00_Pin,
-                  GD02_GPIO_Port, GD02_Pin,
-                  PA_EN_GPIO_Port, PA_EN_Pin,
-                  RX_EN_GPIO_Port, RX_EN_Pin,
-                  &hspi1);
+                   CSN_GPIO_Port, CSN_Pin,
+                   GD00_GPIO_Port, GD00_Pin,
+                   GD02_GPIO_Port, GD02_Pin,
+                   PA_EN_GPIO_Port, PA_EN_Pin,
+                   RX_EN_GPIO_Port, RX_EN_Pin,
+                   &hspi1);
 
-  // Сброс и конфигурация CC2500
   cc2500_reset(&cc2500_ctx);
   HAL_Delay(100);
-
+  
   cc2500_configure(&cc2500_ctx);
   HAL_Delay(10);
-
-  // Установка мощности передатчика
+  
   cc2500_writeRegister(&cc2500_ctx, CC2500_3E_PATABLE, 0x50);
 
-  // Ожидание инициализации USB
+  // Ожидание USB
   HAL_Delay(500);
-
-  if (is_tx_mode) {
-    // ========== РЕЖИМ ПЕРЕДАЧИ ==========
-    char init_msg[] = "CC2500 TX Mode (auto-detected via PA0=HIGH)\r\n";
-    CDC_Transmit_FS((uint8_t*)init_msg, strlen(init_msg));
-  } else {
-    // ========== РЕЖИМ ПРИЕМА ==========
-    // Включение прерываний для GDO пинов
-    HAL_NVIC_SetPriority(EXTI0_IRQn, 5, 0);
-    HAL_NVIC_EnableIRQ(EXTI0_IRQn);
-    HAL_NVIC_SetPriority(EXTI1_IRQn, 5, 0);
-    HAL_NVIC_EnableIRQ(EXTI1_IRQn);
-
-    // Переход в режим приема
-    cc2500_setRxMode(&cc2500_ctx);
-
-    char init_msg[] = "CC2500 RX Mode (auto-detected via PA0=LOW)\r\n";
-    CDC_Transmit_FS((uint8_t*)init_msg, strlen(init_msg));
-  }
+  
+  // Инициализация радио модуля
+  radio_init(&cc2500_ctx, radio_mode);
   
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-  uint8_t counter = 0;
-  
   while (1)
   {
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+    radio_process();
     
-    if (is_tx_mode) {
-      // ========== ЦИКЛ РЕЖИМА ПЕРЕДАЧИ ==========
-      HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
-
-      uint8_t tx_buffer[8];
-      int message_len = sprintf((char*)tx_buffer, "PING%d", counter++);
-
-      for (int i = message_len; i < 8; i++) {
-          tx_buffer[i] = 0;
-      }
-
-      cc2500_transmit(&cc2500_ctx, tx_buffer, 8);
-      tx_packet_count++;
-
-      if (tx_packet_count % 10 == 0) {
-          char stat_msg[64];
-          sprintf(stat_msg, "TX: %lu packets sent\r\n", tx_packet_count);
-          CDC_Transmit_FS((uint8_t*)stat_msg, strlen(stat_msg));
-      }
-
-      HAL_Delay(500);
-    } else {
-      // ========== ЦИКЛ РЕЖИМА ПРИЕМА ==========
-      if (rx_packet_received) {
-          rx_packet_received = 0;
-          process_rx_packet();
-      }
-
-      HAL_Delay(1);
+    // Небольшая задержка в режиме RX для снижения нагрузки CPU
+    if (radio_get_mode() == RADIO_MODE_RX) {
+        HAL_Delay(1);
     }
   }
   /* USER CODE END 3 */

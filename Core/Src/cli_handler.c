@@ -1,5 +1,6 @@
 #include "cli_handler.h"
 #include "usbd_cdc_if.h"
+#include "radio_handler.h"
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -303,13 +304,11 @@ static void handle_dump_regs(void) {
 }
 
 static void handle_debug(char* arg) {
-    extern volatile uint8_t debug_mode;
-
     if (strcmp(arg, "on") == 0) {
-        debug_mode = 1;
+        radio_set_debug(1);
         cli_transmit("Debug mode enabled\r\n");
     } else if (strcmp(arg, "off") == 0) {
-        debug_mode = 0;
+        radio_set_debug(0);
         cli_transmit("Debug mode disabled\r\n");
     } else {
         cli_transmit("Usage: debug <on|off>\r\n");
