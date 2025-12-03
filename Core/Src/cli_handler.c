@@ -89,6 +89,9 @@ static void cli_handle_set_freq(uint32_t freq_khz);
 static void cli_handle_set_mod(const char *mod_str);
 static void cli_handle_set_dev(uint32_t dev_khz);
 static void cli_handle_set_power(int8_t power_dbm);
+static void cli_handle_set_sync(uint32_t sync_word);
+static void cli_handle_set_syncmode(uint8_t mode);
+static void cli_handle_set_bw(uint32_t bw_khz);
 static void cli_handle_help(void);
 static void cli_handle_dump_regs(void);
 static void cli_handle_debug(const char *arg);
@@ -139,30 +142,49 @@ static void cli_process_command(const char *cmd)
     int32_t s_value = 0;
     char str_value[16] = {0};
 
-    if (sscanf(cmd, "set_baud %lu", &value) == 1) {
+    /* set_baud / sb */
+    if (sscanf(cmd, "set_baud %lu", &value) == 1 || sscanf(cmd, "sb %lu", &value) == 1) {
         cli_handle_set_baud(value);
-    } else if (sscanf(cmd, "set_freq %lu", &value) == 1) {
+    /* set_freq / sf */
+    } else if (sscanf(cmd, "set_freq %lu", &value) == 1 || sscanf(cmd, "sf %lu", &value) == 1) {
         cli_handle_set_freq(value);
-    } else if (sscanf(cmd, "set_mod %15s", str_value) == 1) {
+    /* set_mod / sm */
+    } else if (sscanf(cmd, "set_mod %15s", str_value) == 1 || sscanf(cmd, "sm %15s", str_value) == 1) {
         cli_handle_set_mod(str_value);
-    } else if (sscanf(cmd, "set_dev %lu", &value) == 1) {
+    /* set_dev / sd */
+    } else if (sscanf(cmd, "set_dev %lu", &value) == 1 || sscanf(cmd, "sd %lu", &value) == 1) {
         cli_handle_set_dev(value);
-    } else if (sscanf(cmd, "set_power %ld", &s_value) == 1) {
+    /* set_power / sp */
+    } else if (sscanf(cmd, "set_power %ld", &s_value) == 1 || sscanf(cmd, "sp %ld", &s_value) == 1) {
         cli_handle_set_power((int8_t)s_value);
-    } else if (strcmp(cmd, "get_status") == 0) {
+    /* set_sync / ss - sync word in hex (e.g. ss D391 or ss D391D391) */
+    } else if (sscanf(cmd, "set_sync %lx", &value) == 1 || sscanf(cmd, "ss %lx", &value) == 1) {
+        cli_handle_set_sync(value);
+    /* set_syncmode / ssm - sync mode (0-7) */
+    } else if (sscanf(cmd, "set_syncmode %lu", &value) == 1 || sscanf(cmd, "ssm %lu", &value) == 1) {
+        cli_handle_set_syncmode((uint8_t)value);
+    /* set_bw / sbw - RX filter bandwidth in kHz */
+    } else if (sscanf(cmd, "set_bw %lu", &value) == 1 || sscanf(cmd, "sbw %lu", &value) == 1) {
+        cli_handle_set_bw(value);
+    /* get_status / gs */
+    } else if (strcmp(cmd, "get_status") == 0 || strcmp(cmd, "gs") == 0) {
         cli_handle_get_status();
-    } else if (strcmp(cmd, "help") == 0) {
+    /* help / h */
+    } else if (strcmp(cmd, "help") == 0 || strcmp(cmd, "h") == 0) {
         cli_handle_help();
-    } else if (strcmp(cmd, "dump_regs") == 0) {
+    /* dump_regs / dr */
+    } else if (strcmp(cmd, "dump_regs") == 0 || strcmp(cmd, "dr") == 0) {
         cli_handle_dump_regs();
-    } else if (sscanf(cmd, "debug %15s", str_value) == 1) {
+    /* debug */
+    } else if (sscanf(cmd, "debug %15s", str_value) == 1 || sscanf(cmd, "dbg %15s", str_value) == 1) {
         cli_handle_debug(str_value);
-    } else if (strcmp(cmd, "reboot") == 0) {
+    /* reboot / rb */
+    } else if (strcmp(cmd, "reboot") == 0 || strcmp(cmd, "rb") == 0) {
         cli_transmit("Rebooting system...\r\n");
         HAL_Delay(100);
         NVIC_SystemReset();
     } else {
-        cli_transmit("Unknown command. Type 'help' for a list of commands.\r\n");
+        cli_transmit("Unknown command. Type 'help' or 'h' for a list.\r\n");
     }
 }
 
@@ -357,18 +379,22 @@ static void cli_handle_get_status(void)
 static void cli_handle_help(void)
 {
     static const char help_msg[] =
-        "Available commands:\r\n"
-        "  help                  - Show this message\r\n"
-        "  reboot                - Reboot the device\r\n"
-        "  get_status            - Get CC2500 status registers\r\n"
-        "  dump_regs             - Dump all CC2500 registers\r\n"
-        "  debug <on|off>        - Enable/disable debug output\r\n"
-        "  set_baud <rate>       - Set baud rate (1200, 2400, 4800, 9600, 19200,\r\n"
-        "                                   38400, 57600, 125000, 250000, 500000)\r\n"
-        "  set_freq <kHz>        - Set frequency in kHz (2'400'000-2'483'500)\r\n"
-        "  set_mod <type>        - Set modulation (2FSK, GFSK, OOK/ASK, MSK)\r\n"
-        "  set_dev <kHz>         - Set frequency deviation in kHz (up to 500)\r\n"
-        "  set_power <dBm>       - Set output power (1, 0, -2, -4, -6, -8, -10, -16, -20, -30)\r\n";
+        "Commands (short | full):\r\n"
+        "  h   | help            - Show this message\r\n"
+        "  rb  | reboot          - Reboot the device\r\n"
+        "  gs  | get_status      - Get CC2500 status registers\r\n"
+        "  dr  | dump_regs       - Dump all CC2500 registers\r\n"
+        "  dbg | debug <on|off>  - Enable/disable debug output\r\n"
+        "  sb  | set_baud <rate> - Set baud rate (1200-500000)\r\n"
+        "  sf  | set_freq <kHz>  - Set frequency (2400000-2483500)\r\n"
+        "  sm  | set_mod <type>  - Set modulation (2fsk,gfsk,ook,msk)\r\n"
+        "  sd  | set_dev <kHz>   - Set deviation (up to 500)\r\n"
+        "  sp  | set_power <dBm> - Set power (1,0,-2,-4,-6,-8,-10,-16,-20,-30)\r\n"
+        "  ss  | set_sync <hex>  - Set sync word (e.g. ss D391)\r\n"
+        "  ssm | set_syncmode <0-7> - Set sync mode:\r\n"
+        "        0=No sync, 1=15/16, 2=16/16, 3=30/32\r\n"
+        "        4-7=same + carrier sense\r\n"
+        "  sbw | set_bw <kHz>    - Set RX filter BW (58-812)\r\n";
     
     cli_transmit(help_msg);
 }
@@ -390,4 +416,117 @@ static void cli_handle_debug(const char *arg)
     } else {
         cli_transmit("Usage: debug <on|off>\r\n");
     }
+}
+
+static void cli_handle_set_sync(uint32_t sync_word)
+{
+    /* Sync word can be 16-bit (0xXXXX) or 32-bit (0xXXXXXXXX) */
+    uint8_t sync1, sync0;
+    
+    if (sync_word > 0xFFFFU) {
+        /* 32-bit sync word - use upper 16 bits for SYNC1/SYNC0 */
+        /* Note: For 30/32 bit mode, CC2500 uses SYNC1+SYNC0 twice */
+        sync1 = (uint8_t)((sync_word >> 24) & 0xFFU);
+        sync0 = (uint8_t)((sync_word >> 16) & 0xFFU);
+        /* Store lower 16 bits as well if needed - CC2500 sends SYNC1+SYNC0 twice for 32-bit */
+        snprintf(s_tx_buffer, CLI_TX_BUFFER_SIZE, 
+                 "Sync word set to 0x%08lX (32-bit mode)\r\n", sync_word);
+    } else {
+        /* 16-bit sync word */
+        sync1 = (uint8_t)((sync_word >> 8) & 0xFFU);
+        sync0 = (uint8_t)(sync_word & 0xFFU);
+        snprintf(s_tx_buffer, CLI_TX_BUFFER_SIZE, 
+                 "Sync word set to 0x%04lX (16-bit mode)\r\n", sync_word);
+    }
+    
+    cc2500_writeRegister(s_cc2500_ctx, CC2500_04_SYNC1, sync1);
+    cc2500_writeRegister(s_cc2500_ctx, CC2500_05_SYNC0, sync0);
+    
+    cli_transmit(s_tx_buffer);
+}
+
+static void cli_handle_set_syncmode(uint8_t mode)
+{
+    if (mode > 7U) {
+        cli_transmit("Sync mode must be 0-7\r\n");
+        return;
+    }
+    
+    uint8_t mdmcfg2;
+    cc2500_readRegister(s_cc2500_ctx, CC2500_12_MDMCFG2, &mdmcfg2);
+    
+    /* Clear SYNC_MODE bits [2:0] and set new value */
+    mdmcfg2 = (mdmcfg2 & 0xF8U) | mode;
+    cc2500_writeRegister(s_cc2500_ctx, CC2500_12_MDMCFG2, mdmcfg2);
+    
+    static const char *mode_names[] = {
+        "No preamble/sync",
+        "15/16 sync bits",
+        "16/16 sync bits",
+        "30/32 sync bits",
+        "No sync + carrier sense",
+        "15/16 + carrier sense",
+        "16/16 + carrier sense",
+        "30/32 + carrier sense"
+    };
+    
+    snprintf(s_tx_buffer, CLI_TX_BUFFER_SIZE, 
+             "Sync mode set to %d: %s\r\n", mode, mode_names[mode]);
+    cli_transmit(s_tx_buffer);
+}
+
+static void cli_handle_set_bw(uint32_t bw_khz)
+{
+    /* CC2500 RX filter bandwidth is set via MDMCFG4[7:4]
+     * BW = f_xosc / (8 * (4 + CHANBW_M) * 2^CHANBW_E)
+     * f_xosc = 26 MHz
+     * 
+     * Available bandwidths (kHz):
+     * CHANBW_E | CHANBW_M=0 | M=1  | M=2  | M=3
+     *    0     |    812     | 650  | 541  | 464
+     *    1     |    406     | 325  | 270  | 232
+     *    2     |    203     | 162  | 135  | 116
+     *    3     |    101     |  81  |  67  |  58
+     */
+    
+    /* Lookup table: {bandwidth_kHz, CHANBW_E, CHANBW_M} */
+    static const struct {
+        uint16_t bw;
+        uint8_t chanbw_e;
+        uint8_t chanbw_m;
+    } bw_table[] = {
+        {812, 0, 0}, {650, 0, 1}, {541, 0, 2}, {464, 0, 3},
+        {406, 1, 0}, {325, 1, 1}, {270, 1, 2}, {232, 1, 3},
+        {203, 2, 0}, {162, 2, 1}, {135, 2, 2}, {116, 2, 3},
+        {101, 3, 0}, {81,  3, 1}, {67,  3, 2}, {58,  3, 3}
+    };
+    
+    /* Find closest bandwidth */
+    uint8_t best_idx = 0;
+    uint32_t min_diff = 0xFFFFFFFFU;
+    
+    for (uint8_t i = 0; i < 16U; i++) {
+        uint32_t diff = (bw_khz > bw_table[i].bw) 
+                        ? (bw_khz - bw_table[i].bw) 
+                        : (bw_table[i].bw - bw_khz);
+        if (diff < min_diff) {
+            min_diff = diff;
+            best_idx = i;
+        }
+    }
+    
+    /* Read current MDMCFG4 to preserve data rate exponent */
+    uint8_t mdmcfg4;
+    cc2500_readRegister(s_cc2500_ctx, CC2500_10_MDMCFG4, &mdmcfg4);
+    
+    /* Update CHANBW bits [7:4] */
+    mdmcfg4 = (mdmcfg4 & 0x0FU) | 
+              ((bw_table[best_idx].chanbw_e << 6) | (bw_table[best_idx].chanbw_m << 4));
+    
+    cc2500_writeRegister(s_cc2500_ctx, CC2500_10_MDMCFG4, mdmcfg4);
+    
+    snprintf(s_tx_buffer, CLI_TX_BUFFER_SIZE, 
+             "RX filter BW set to %u kHz (requested %lu)\r\n", 
+             bw_table[best_idx].bw, bw_khz);
+    cli_transmit(s_tx_buffer);
 }
