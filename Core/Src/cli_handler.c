@@ -95,6 +95,7 @@ static void cli_handle_set_bw(uint32_t bw_khz);
 static void cli_handle_help(void);
 static void cli_handle_dump_regs(void);
 static void cli_handle_debug(const char *arg);
+static void cli_handle_tx(const char *data);
 
 /* ============================================================================
  * Public Functions
@@ -183,6 +184,14 @@ static void cli_process_command(const char *cmd)
         cli_transmit("Rebooting system...\r\n");
         HAL_Delay(100);
         NVIC_SystemReset();
+    /* tx / send <data> - transmit packet */
+    } else if (strncmp(cmd, "tx ", 3) == 0) {
+        cli_handle_tx(cmd + 3);
+    } else if (strncmp(cmd, "send ", 5) == 0) {
+        cli_handle_tx(cmd + 5);
+    /* tx (without data) - send test packet */
+    } else if (strcmp(cmd, "tx") == 0 || strcmp(cmd, "send") == 0) {
+        cli_handle_tx("PING");
     } else {
         cli_transmit("Unknown command. Type 'help' or 'h' for a list.\r\n");
     }
@@ -382,6 +391,7 @@ static void cli_handle_help(void)
         "Commands (short | full):\r\n"
         "  h   | help            - Show this message\r\n"
         "  rb  | reboot          - Reboot the device\r\n"
+        "  tx  | send [data]     - Transmit packet (default: PING)\r\n"
         "  gs  | get_status      - Get CC2500 status registers\r\n"
         "  dr  | dump_regs       - Dump all CC2500 registers\r\n"
         "  dbg | debug <on|off>  - Enable/disable debug output\r\n"
@@ -529,4 +539,19 @@ static void cli_handle_set_bw(uint32_t bw_khz)
              "RX filter BW set to %u kHz (requested %lu)\r\n", 
              bw_table[best_idx].bw, bw_khz);
     cli_transmit(s_tx_buffer);
+}
+
+static void cli_handle_tx(const char *data)
+{
+    if (data == NULL || strlen(data) == 0) {
+        cli_transmit("Usage: tx <data> or send <data>\r\n");
+        return;
+    }
+    
+    uint8_t len = (uint8_t)strlen(data);
+    if (len > 61U) {
+        len = 61U;  /* Max packet length */
+    }
+    
+    radio_transmit_packet((const uint8_t *)data, len);
 }

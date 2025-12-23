@@ -36,7 +36,6 @@ static char s_usb_buffer[RADIO_USB_BUFFER_SIZE];
  * Private Function Prototypes
  * ========================================================================= */
 static void radio_process_rx_packet(void);
-static void radio_process_tx_cycle(void);
 static void radio_send_debug(const char *fmt, ...);
 
 /* ============================================================================
@@ -68,6 +67,13 @@ void radio_init(CC2500CTX *ctx, RadioMode_t mode)
         const char *msg = "Radio: RX Mode initialized\r\n";
         CDC_Transmit_FS((uint8_t *)msg, (uint16_t)strlen(msg));
     } else {
+        /* TX mode: disable GDO interrupts (may be enabled by CubeMX GPIO init) */
+        HAL_NVIC_DisableIRQ(EXTI0_IRQn);
+        HAL_NVIC_DisableIRQ(EXTI1_IRQn);
+        
+        /* Stay in IDLE, transmit only on command */
+        cc2500_setIdleMode(s_ctx);
+        
         const char *msg = "Radio: TX Mode initialized\r\n";
         CDC_Transmit_FS((uint8_t *)msg, (uint16_t)strlen(msg));
     }
@@ -79,9 +85,9 @@ void radio_process(void)
         return;
     }
     
-    if (s_current_mode == RADIO_MODE_TX) {
-        radio_process_tx_cycle();
-    } else {
+    /* TX mode: передача только по команде radio_transmit_packet() */
+    /* RX mode: обработка входящих пакетов */
+    if (s_current_mode == RADIO_MODE_RX) {
         if (s_rx_packet_pending != 0U) {
             s_rx_packet_pending = 0;
             radio_process_rx_packet();
@@ -225,28 +231,30 @@ static void radio_process_rx_packet(void)
     cc2500_setRxMode(s_ctx);
 }
 
-static void radio_process_tx_cycle(void)
+int radio_transmit_packet(const uint8_t *data, uint8_t length)
 {
-    HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
-    
-    /* Build packet */
-    uint8_t tx_data[8];
-    int len = snprintf((char *)tx_data, sizeof(tx_data), "PING%d", s_tx_counter++);
-    
-    /* Fill remainder with zeros */
-    for (int i = len; i < 8; i++) {
-        tx_data[i] = 0;
+    if (s_ctx == NULL) {
+        return -1;
     }
     
-    cc2500_transmit(s_ctx, tx_data, 8);
-    s_stats.tx_count++;
+    if (length > RADIO_MAX_PACKET_LEN) {
+        length = RADIO_MAX_PACKET_LEN;
+    }
     
-    /* Periodic status output */
-    if ((s_stats.tx_count % 10U) == 0U) {
+    HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
+    
+    int result = cc2500_transmit(s_ctx, data, length);
+    
+    if (result == 0) {
+        s_stats.tx_count++;
         int msg_len = snprintf(s_usb_buffer, sizeof(s_usb_buffer),
-                               "TX: %lu packets sent\r\n", s_stats.tx_count);
+                               "TX OK: %d bytes, total: %lu\r\n", length, s_stats.tx_count);
+        CDC_Transmit_FS((uint8_t *)s_usb_buffer, (uint16_t)msg_len);
+    } else {
+        int msg_len = snprintf(s_usb_buffer, sizeof(s_usb_buffer),
+                               "TX FAIL: error %d\r\n", result);
         CDC_Transmit_FS((uint8_t *)s_usb_buffer, (uint16_t)msg_len);
     }
     
-    HAL_Delay(RADIO_TX_INTERVAL_MS);
+    return result;
 }

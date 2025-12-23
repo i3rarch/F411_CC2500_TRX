@@ -68,6 +68,14 @@ RadioMode_t radio_get_mode(void);
  */
 void radio_set_debug(uint8_t enable);
 
+/**
+ * @brief Transmit a packet manually
+ * @param data Pointer to data buffer
+ * @param length Length of data (max 61 bytes)
+ * @return 0 on success, negative on error
+ */
+int radio_transmit_packet(const uint8_t *data, uint8_t length);
+
 #ifdef __cplusplus
 }
 #endif
